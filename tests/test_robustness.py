@@ -42,8 +42,14 @@ def fake_store(monkeypatch):
 
     monkeypatch.setattr(firestore_client, "create_case", create_case)
     monkeypatch.setattr(firestore_client, "log_telemetry", lambda e: telemetry.append(e) or "t")
-    # make sure no live weather is configured (default), so the weather fallback fires
-    monkeypatch.delenv("WEATHER_API_KEY", raising=False)
+    monkeypatch.setattr(firestore_client, "get_crop", lambda cid: None)
+    # Stub live weather so these unit tests stay offline/deterministic (individual
+    # tests can override to exercise the fallback).
+    from models import Weather
+    monkeypatch.setattr(
+        main.weather_source, "get_weather",
+        lambda lat, lng: Weather(temp_c=27.0, humidity_pct=65.0, rain_48h_mm=0.0, source="live"),
+    )
     return {"cases": created_cases, "telemetry": telemetry}
 
 
@@ -91,7 +97,12 @@ def test_garbage_image_degrades_gracefully(fake_store, monkeypatch):
 
 
 def test_missing_weather_logs_fallback_and_uses_zone_normal(fake_store, monkeypatch):
-    """No live weather provider -> zone-normal defaults + a logged fallback."""
+    """Live weather unavailable -> zone-normal defaults + a logged fallback."""
+    # Force the live weather fetch to fail so the fallback path is exercised offline.
+    monkeypatch.setattr(
+        main.weather_source, "get_weather",
+        lambda *a, **k: (_ for _ in ()).throw(main.weather_source.WeatherError("offline")),
+    )
     # vision/explain don't matter here; force them to fail so the flow is offline
     monkeypatch.setattr(main, "diagnose_image", lambda *a, **k: (_ for _ in ()).throw(VisionError("x")))
     monkeypatch.setattr(main, "explain_fusion", lambda *a, **k: (_ for _ in ()).throw(ExplainError("x")))

@@ -268,6 +268,157 @@ def explain_recommendations(
         raise RecommendExplainError(f"Gemini recommendation explain call failed: {exc}") from exc
 
 
+# --- conversational crop recommendation (voice-first) ----------------------------
+
+SEASON_LABELS = {
+    "en": {"kharif": "kharif (monsoon)", "rabi": "rabi (winter)", "zaid": "zaid (summer)"},
+    "hi": {"kharif": "खरीफ़ (मानसून)", "rabi": "रबी (सर्दी)", "zaid": "ज़ायद (गर्मी)"},
+    "te": {"kharif": "ఖరీఫ్ (వర్షాకాలం)", "rabi": "రబీ (శీతాకాలం)", "zaid": "జాయద్ (వేసవి)"},
+}
+
+
+def _season_label(season, language):
+    if not season:
+        return None
+    return SEASON_LABELS.get(language, SEASON_LABELS["en"]).get(season, season)
+
+
+RECOMMEND_CONVO_SYSTEM_INSTRUCTION = """You are KisanMate, a warm farm advisor talking WITH a
+smallholder farmer in India -- a conversation, not a form. The farmer has asked a free-form
+question (voice or text). Answer it specifically and practically.
+
+You are given:
+- the farmer's question,
+- their field context (soil type, location, current season + weather, and their current/recent crops),
+- a GROUNDED list of candidate crops from our database (this is the ONLY set you may recommend from).
+
+Rules you must always follow:
+- Recommend ONE or TWO specific crops, chosen ONLY from the grounded candidate list. NEVER invent a
+  crop or recommend one that is not in that list.
+- For each recommended crop, give a clear "why" that references, where relevant: the farmer's SOIL, the
+  current SEASON/WEATHER, and crop ROTATION from their previous/current crop (e.g. a legume after a
+  heavy feeder like tomato). Ground it in the candidate data; do not invent yields, prices, or chemicals.
+- Also write a short "spoken" answer (2-3 short sentences) that sounds like a helpful conversation and
+  reads well aloud, in the requested language.
+- Write in the requested language, in plain words for limited literacy.
+- Return ONLY JSON of this exact shape, nothing else:
+  {"recommendations":[{"crop_id":"<id from the list>","crop_name":"<localized name>","why":"..."}],
+   "spoken":"..."}"""
+
+
+def recommend_conversational(question, profile, grounding, language):
+    """Ask Gemini for a specific, grounded, rotation-aware recommendation.
+
+    `grounding` is the candidate crop shortlist (the ONLY crops the model may
+    pick). Returns {"recommendations":[{crop_id,crop_name,why}], "spoken": str},
+    filtered to the grounded crop ids. Raises RecommendExplainError on failure so
+    the caller can fall back to the deterministic recommendation.
+    """
+    language_name = LANGUAGE_NAMES.get(language, "English")
+    allowed = {c.get("crop_id") for c in grounding}
+    prompt = (
+        f"{RECOMMEND_CONVO_SYSTEM_INSTRUCTION}\n\n"
+        f"Respond in: {language_name}\n\n"
+        f"Farmer's question:\n{json.dumps(question)}\n\n"
+        f"Field context:\n{json.dumps(profile)}\n\n"
+        f"Grounded candidate crops (recommend ONLY from these):\n{json.dumps(grounding)}"
+    )
+    try:
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+        text = (response.text or "").strip()
+        if not text:
+            raise RecommendExplainError("Gemini returned an empty recommendation")
+        if text.startswith("```"):
+            text = text.strip("`")
+            text = text[text.find("{"):]
+        data = json.loads(text)
+        recs_in = data.get("recommendations") if isinstance(data, dict) else None
+        if not isinstance(recs_in, list):
+            raise RecommendExplainError("Gemini recommendation was not the expected shape")
+
+        recs = []
+        for r in recs_in:
+            if not isinstance(r, dict):
+                continue
+            cid = str(r.get("crop_id", "")).strip()
+            # Enforce grounding: silently drop any hallucinated crop.
+            if cid and cid not in allowed:
+                continue
+            why = str(r.get("why", "")).strip()
+            name = str(r.get("crop_name", "")).strip() or cid
+            if cid and why:
+                recs.append({"crop_id": cid, "crop_name": name, "why": why})
+        if not recs:
+            raise RecommendExplainError("Gemini recommended nothing from the grounded list")
+
+        spoken = str(data.get("spoken", "")).strip() or " ".join(r["why"] for r in recs)
+        return {"recommendations": recs[:2], "spoken": spoken}
+    except RecommendExplainError:
+        raise
+    except Exception as exc:
+        raise RecommendExplainError(f"Gemini conversational recommend failed: {exc}") from exc
+
+
+def fallback_recommendation(candidates, soil_type, season, prev_crop_name, language):
+    """Deterministic recommendation when Gemini is unavailable.
+
+    `candidates` are crop dicts {crop_id, names(dict)} already ranked for the
+    field. Builds the same {recommendations, spoken} shape with a localized,
+    grounded template "why" (soil + season + rotation), so voice/UI are identical
+    to the AI path.
+    """
+    soil = _soil_label(soil_type, language)
+    season_txt = _season_label(season, language)
+    picks = candidates[:2]
+    recs = []
+    for c in picks:
+        names = c.get("names") or {}
+        name = names.get(language) or names.get("en") or c.get("crop_id")
+        recs.append({"crop_id": c.get("crop_id"), "crop_name": name, "why": _fallback_why(soil, season_txt, prev_crop_name, language)})
+
+    if language == "hi":
+        lead = "आपके खेत के लिए ये अच्छे विकल्प हैं: "
+    elif language == "te":
+        lead = "మీ పొలానికి ఇవి మంచి ఎంపికలు: "
+    else:
+        lead = "Good options for your field: "
+    spoken = lead + ", ".join(r["crop_name"] for r in recs) + "."
+    return {"recommendations": recs, "spoken": spoken}
+
+
+def _fallback_why(soil, season_txt, prev_crop, language):
+    if language == "hi":
+        parts = []
+        if soil:
+            parts.append("आपकी " + soil + " मिट्टी")
+        if season_txt:
+            parts.append("अभी के " + season_txt + " मौसम")
+        why = ("इनके लिए अच्छी: " + " और ".join(parts)) if parts else "आपके खेत के लिए अच्छी"
+        if prev_crop:
+            why += "; " + prev_crop + " के बाद अच्छी अदला-बदली"
+        return why + "।"
+    if language == "te":
+        parts = []
+        if soil:
+            parts.append("మీ " + soil + " నేలకు")
+        if season_txt:
+            parts.append("ప్రస్తుత " + season_txt + " సీజన్‌కు")
+        why = ("వీటికి బాగుంటుంది: " + ", ".join(parts)) if parts else "మీ పొలానికి బాగుంటుంది"
+        if prev_crop:
+            why += "; " + prev_crop + " తర్వాత మంచి మార్పిడి"
+        return why + "."
+    parts = []
+    if soil:
+        parts.append("your " + soil + " soil")
+    if season_txt:
+        parts.append("the current " + season_txt + " season")
+    why = ("Suited to " + " and ".join(parts)) if parts else "A solid choice for your field"
+    if prev_crop:
+        why += ", and a healthy rotation after " + prev_crop
+    return why + "."
+
+
 def template_message(decision: str, language: str, context=None) -> str:
     """Deterministic per-language fallback message (a single combined string).
 

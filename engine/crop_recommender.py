@@ -73,11 +73,13 @@ def rank_crops(
     soil_type: Optional[str] = None,
     season: Optional[str] = None,
     region: Optional[str] = None,
+    limit: int = TOP_N,
 ) -> list[CropRecommendation]:
     """Rank crops from the collection by how many of soil/season/region they match.
 
     Deterministic: score is the count of matched criteria (0-3); ties break by
-    crop id so the ordering is stable and reproducible for the demo.
+    crop id so the ordering is stable and reproducible for the demo. `limit`
+    controls how many are returned (default TOP_N; larger for a grounding shortlist).
     """
     soil_type = _normalize_soil(soil_type)
 
@@ -102,4 +104,4 @@ def rank_crops(
         scored.append((len(matched), rec.crop, rec))
 
     scored.sort(key=lambda t: (-t[0], t[1]))
-    return [rec for _, _, rec in scored[:TOP_N]]
+    return [rec for _, _, rec in scored[:limit]]

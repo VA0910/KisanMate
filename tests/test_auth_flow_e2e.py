@@ -132,6 +132,9 @@ def _onboard_to_phone(page, base_url):
     page.wait_for_selector("#screen-language:not([hidden])")
     page.click('.lang-card[data-lang="en"]')
     page.click("#language-next-btn")
+    # First visit plays the cinematic intro between language and login; skip it.
+    page.wait_for_selector("#intro-overlay:not([hidden])")
+    page.click("#intro-skip-btn")
     page.wait_for_selector("#screen-phone:not([hidden])")
 
 
@@ -279,6 +282,61 @@ def test_diagnose_camera_capture_structured_and_dispute(page, base_url):
             firestore_client.get_client().collection("cases").document(case_id).delete()
         except Exception:
             pass
+
+
+def test_intro_auto_plays_skips_and_plays_once(page, base_url):
+    page.goto(base_url)
+    page.wait_for_selector("#screen-welcome:not([hidden])")
+    page.click("#welcome-start-btn")
+    page.wait_for_selector("#screen-language:not([hidden])")
+    page.click('.lang-card[data-lang="en"]')
+    page.click("#language-next-btn")
+
+    # Intro auto-plays with a caption...
+    page.wait_for_selector("#intro-overlay:not([hidden])")
+    first_caption = page.inner_text("#intro-caption").strip()
+    assert first_caption != ""
+    # ...and auto-advances to another scene with NO clicks.
+    page.wait_for_function(
+        "(c) => { var e = document.getElementById('intro-caption'); return e && e.textContent.trim() && e.textContent.trim() !== c; }",
+        arg=first_caption, timeout=9000,
+    )
+
+    # Skip jumps straight to login.
+    page.click("#intro-skip-btn")
+    page.wait_for_selector("#screen-phone:not([hidden])")
+    assert page.is_hidden("#intro-overlay")
+
+    # Plays once: going language -> continue again skips straight to login.
+    page.click("#phone-back-btn")
+    page.wait_for_selector("#screen-language:not([hidden])")
+    page.click("#language-next-btn")
+    page.wait_for_selector("#screen-phone:not([hidden])")
+    assert page.is_hidden("#intro-overlay")
+
+    # "Watch intro" replays it.
+    page.click("#watch-intro-btn")
+    page.wait_for_selector("#intro-overlay:not([hidden])")
+    page.click("#intro-skip-btn")
+    page.wait_for_selector("#screen-phone:not([hidden])")
+
+
+def test_recommend_conversation_text_path(page, base_url):
+    """Voice-first recommend: the text-box fallback carries a free-form question
+    to a structured, spoken-ready recommendation card."""
+    _sign_in(page, base_url, RAMESH_PHONE)
+    page.wait_for_selector("#screen-home:not([hidden])")
+    page.click("#go-recommend-btn")
+    page.wait_for_selector("#screen-recommend:not([hidden])")
+    # The mic is the primary action; the text box is the accessible fallback.
+    assert page.is_visible("#recommend-mic-btn")
+    page.fill("#recommend-text-input", "what should I grow after tomatoes?")
+    page.click("#recommend-ask-btn")
+    # A structured recommendation card comes back (Gemini or deterministic fallback).
+    page.wait_for_selector("#recommend-result:not([hidden])", timeout=30000)
+    page.wait_for_selector("#recommend-list .reco-card")
+    assert page.inner_text("#recommend-list .reco-name").strip() != ""
+    assert "tomatoes" in page.inner_text("#recommend-question").lower()
 
 
 def test_admin_login_shows_portal_with_both_tabs(page, base_url):

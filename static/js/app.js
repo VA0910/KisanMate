@@ -172,7 +172,7 @@
   var SCREEN_ENTER_HOOKS = {
     home: loadReminders,
     diagnose: resetDiagnoseScreen,
-    recommend: function () { showRecommendSubState("form"); },
+    recommend: resetRecommendScreen,
     alerts: loadAlerts
   };
 
@@ -591,79 +591,102 @@
     window.KM_SPEECH.speak(t("disputeThanks"), localeTag());
   }
 
-  // ---- Recommend ----------------------------------------------------------------
+  // ---- Recommend (voice-first conversation) --------------------------------------
 
-  function buildOptionGroup(containerId, groupName, codes, labelDict) {
-    var container = $(containerId);
-    container.innerHTML = "";
-    codes.forEach(function (code) {
-      var id = groupName + "-" + code;
+  // Kept as a no-op: the recommend screen no longer uses the old chip form, but
+  // several callers (setLang, profile save, demo) still call this by name.
+  function rebuildRecommendOptionGroups() {}
 
-      var wrap = document.createElement("div");
-      wrap.className = "chip";
-
-      var input = document.createElement("input");
-      input.type = "radio";
-      input.name = groupName;
-      input.id = id;
-      input.value = code;
-      input.className = "chip-input visually-hidden-input";
-      if (state.recommendSelections[groupName] === code) input.checked = true;
-      input.addEventListener("change", function () {
-        state.recommendSelections[groupName] = code;
-        $("recommend-hint").textContent = "";
-      });
-
-      var label = document.createElement("label");
-      label.setAttribute("for", id);
-      label.className = "chip-label";
-      label.textContent = labelDict[code] || code;
-
-      wrap.appendChild(input);
-      wrap.appendChild(label);
-      container.appendChild(wrap);
-    });
-  }
-
-  function rebuildRecommendOptionGroups() {
-    var d = dict();
-    buildOptionGroup("soil-options", "soil", SOIL_OPTIONS, d.soils);
-    buildOptionGroup("zone-options", "zone", ZONE_OPTIONS, d.zones);
-    buildOptionGroup("rainfall-options", "rainfall", RAINFALL_OPTIONS, d.rainfall);
-    buildOptionGroup("groundwater-options", "groundwater", GROUNDWATER_OPTIONS, d.groundwater);
+  function resetRecommendScreen() {
+    state.recommendMicState = "idle";
+    state.lastRecommendSpoken = "";
+    setRecommendMicVisual("idle");
+    $("recommend-transcript").hidden = true;
+    $("recommend-transcript").textContent = "";
+    $("recommend-mic-hint").textContent = "";
+    $("recommend-text-input").value = "";
+    if (!window.KM_SPEECH.sttAvailable) {
+      // STT unavailable: point the farmer at the text box instead (logged).
+      $("recommend-mic-btn").setAttribute("aria-disabled", "true");
+      $("recommend-mic-hint").textContent = t("micUnavailableHint");
+      window.KM_API.logTelemetry({ event: "stt_unavailable", layer: "recommend", detail: {}, fallback_used: true });
+    }
+    showRecommendSubState("ask");
   }
 
   function wireRecommend() {
-    rebuildRecommendOptionGroups();
-    $("recommend-form").addEventListener("submit", function (e) {
+    $("recommend-mic-btn").addEventListener("click", handleRecommendMic);
+    $("recommend-text-form").addEventListener("submit", function (e) {
       e.preventDefault();
-      var sel = state.recommendSelections;
-      if (!sel.soil || !sel.zone || !sel.rainfall || !sel.groundwater) {
-        $("recommend-hint").textContent = t("chooseAllHint");
-        return;
-      }
-      submitRecommend();
+      askRecommend(($("recommend-text-input").value || "").trim());
     });
-    $("recommend-start-over-btn").addEventListener("click", function () { showRecommendSubState("form"); });
-    $("recommend-retry-btn").addEventListener("click", submitRecommend);
+    $("recommend-start-over-btn").addEventListener("click", resetRecommendScreen);
+    $("recommend-retry-btn").addEventListener("click", function () {
+      if (state.lastRecommendQuestion) askRecommend(state.lastRecommendQuestion);
+      else resetRecommendScreen();
+    });
+    $("recommend-play-btn").addEventListener("click", function () {
+      if (state.lastRecommendSpoken) window.KM_SPEECH.speak(state.lastRecommendSpoken, localeTag());
+    });
+    if (!window.KM_SPEECH.ttsAvailable) $("recommend-play-btn").hidden = true;
   }
 
   function showRecommendSubState(name) {
-    var map = { form: "recommend-form", thinking: "recommend-thinking", result: "recommend-result", error: "recommend-error" };
+    var map = { ask: "recommend-ask", thinking: "recommend-thinking", result: "recommend-result", error: "recommend-error" };
     Object.keys(map).forEach(function (k) { $(map[k]).hidden = k !== name; });
   }
 
-  function submitRecommend() {
-    var sel = state.recommendSelections;
-    var payload = {
-      farmer_id: state.farmerId,
-      soil: sel.soil,
-      groundwater_depth_m: GROUNDWATER_M[sel.groundwater],
-      agro_zone: sel.zone,
-      seasonal_rainfall_mm: RAINFALL_MM[sel.rainfall]
-    };
+  function setRecommendMicVisual(newState) {
+    state.recommendMicState = newState;
+    var btn = $("recommend-mic-btn");
+    var status = $("recommend-mic-status");
+    if (newState === "listening") {
+      btn.classList.add("mic-listening");
+      btn.setAttribute("aria-pressed", "true");
+      status.textContent = t("listening");
+    } else {
+      btn.classList.remove("mic-listening");
+      btn.setAttribute("aria-pressed", "false");
+      status.textContent = t("askMeToGrow");
+    }
+  }
+
+  function handleRecommendMic() {
+    if (!window.KM_SPEECH.sttAvailable) {
+      // Fallback: focus the text box so the farmer can type instead.
+      $("recommend-mic-hint").textContent = t("micUnavailableHint");
+      $("recommend-text-input").focus();
+      return;
+    }
+    if (state.recommendMicState === "listening") {
+      window.KM_SPEECH.stopListening();
+      setRecommendMicVisual("idle");
+      return;
+    }
+    setRecommendMicVisual("listening");
+    window.KM_SPEECH.listenOnce(localeTag(), {
+      onResult: function (transcript) {
+        var q = (transcript || "").trim();
+        if (q) askRecommend(q);
+      },
+      onError: function (kind) {
+        if (kind === "not-allowed" || kind === "service-not-allowed") {
+          $("recommend-mic-hint").textContent = t("micPermissionDenied");
+        } else if (kind === "unsupported") {
+          $("recommend-mic-hint").textContent = t("micUnavailableHint");
+        } else {
+          $("recommend-mic-hint").textContent = t("voiceNotUnderstood");
+        }
+      },
+      onEnd: function () { setRecommendMicVisual("idle"); }
+    });
+  }
+
+  function askRecommend(question) {
+    if (!question) { $("recommend-mic-hint").textContent = t("recommendAskEmpty"); return; }
+    state.lastRecommendQuestion = question;
     showRecommendSubState("thinking");
-    window.KM_API.recommend(payload)
+    window.KM_API.recommendAsk(state.farmerId, question)
       .then(renderRecommendResult)
       .catch(function (err) {
         $("recommend-error-msg").textContent = friendlyMessageFor(err, "recommendError");
@@ -672,64 +695,47 @@
   }
 
   function renderRecommendResult(data) {
-    var d = dict();
-    // Prefer the server's personalized note (references the farmer's soil and
-    // current growth stage); fall back to the generic intro string.
-    var intro = $("recommend-intro");
-    if (intro) intro.textContent = (data && data.context_note) ? data.context_note : t("recommendResultIntro");
+    var recs = (data && data.recommendations) || [];
+    var qEl = $("recommend-question");
+    if (data && data.question) {
+      qEl.textContent = t("recommendYouAsked")(data.question);
+      qEl.hidden = false;
+    } else {
+      qEl.hidden = true;
+    }
+
     var list = $("recommend-list");
     list.innerHTML = "";
-    var recs = data.recommendations || [];
-
     recs.forEach(function (rec, index) {
       var li = document.createElement("li");
-      li.className = "crop-card" + (index === 0 ? " crop-card-best" : "");
-
-      if (index === 0) {
-        var badge = document.createElement("span");
-        badge.className = "best-badge";
-        badge.textContent = t("bestMatch");
-        li.appendChild(badge);
-      }
+      li.className = "reco-card" + (index === 0 ? " reco-card-best" : "");
 
       var head = document.createElement("div");
-      head.className = "crop-card-head";
+      head.className = "reco-head";
       var emoji = document.createElement("span");
       emoji.className = "crop-emoji";
       emoji.setAttribute("aria-hidden", "true");
-      emoji.textContent = CROP_EMOJI[rec.crop] || "🌱";
+      emoji.textContent = CROP_EMOJI[rec.crop_id] || "🌱";
       var name = document.createElement("span");
-      name.className = "crop-name";
-      name.textContent = d.crops[rec.crop] || rec.crop;
+      name.className = "reco-name";
+      name.textContent = rec.crop_name || rec.crop_id || "";
       head.appendChild(emoji);
       head.appendChild(name);
       li.appendChild(head);
 
-      var segWrap = document.createElement("div");
-      segWrap.className = "segment-row";
-      segWrap.setAttribute("role", "img");
-      segWrap.setAttribute("aria-label", t("confidenceLabel") + ": " + rec.score + "/4");
-      renderSegments(segWrap, rec.score, 4);
-      li.appendChild(segWrap);
-
-      // Prefer the server-provided reason text (Gemini, or the deterministic
-      // reason that already names the farmer's soil); fall back to the legacy
-      // reason-code lookup for older responses.
-      var reasonText = rec.reason || d.reasons[rec.reason_code];
-      if (reasonText) {
-        var reason = document.createElement("p");
-        reason.className = "crop-reason";
-        reason.textContent = reasonText;
-        li.appendChild(reason);
+      if (rec.why) {
+        var why = document.createElement("p");
+        why.className = "reco-why";
+        why.textContent = rec.why;
+        li.appendChild(why);
       }
-
       list.appendChild(li);
     });
 
+    state.lastRecommendSpoken = (data && data.spoken) || "";
     showRecommendSubState("result");
-    if (recs.length > 0 && !state.demoActive) {
-      var topName = d.crops[recs[0].crop] || recs[0].crop;
-      window.KM_SPEECH.speak(t("recommendVoiceSummary")(topName), localeTag());
+    if (state.lastRecommendSpoken && !state.demoActive) {
+      window.KM_SPEECH.speak(state.lastRecommendSpoken, localeTag());
     }
   }
 
@@ -833,7 +839,11 @@
     });
     $("language-next-btn").addEventListener("click", function () {
       if (!state.lang) return;
-      showScreen(isSignedIn() ? "home" : "phone");
+      if (isSignedIn()) { showScreen("home"); return; }
+      // First-time flow: language -> cinematic intro -> login. On later visits
+      // (intro already seen) go straight to login.
+      if (introSeen()) { showScreen("phone"); return; }
+      startIntro(function () { showScreen("phone"); });
     });
   }
 
@@ -857,6 +867,10 @@
     $("otp-back-btn").addEventListener("click", function () {
       $("otp-input").value = "";
       showScreen("phone");
+    });
+    // "Watch intro" on the login screen replays the cinematic intro.
+    $("watch-intro-btn").addEventListener("click", function () {
+      startIntro(function () { showScreen("phone"); });
     });
   }
 
@@ -1393,8 +1407,8 @@
 
   // ---- guided demo (the "Run demo scenario" walkthrough) --------------------------
 
-  var DEMO_STEP_MS = 7500; // auto-advance pace; "Next" skips ahead, "Exit" stops
-  var demoState = { narratorLang: "en", steps: [], index: -1, timer: null, data: null };
+  var DEMO_STEP_MS = 4500; // minimum beat time; a scene also waits for its voice-over
+  var demoState = { narratorLang: "en", steps: [], index: -1, timer: null, maxTimer: null, gen: 0, data: null };
 
   function demoDict() {
     return window.KM_STRINGS[demoState.narratorLang] || window.KM_STRINGS.en;
@@ -1446,7 +1460,13 @@
         run: function () {
           applyDemoLang(demoState.narratorLang);
           showScreen("recommend", true);
-          renderRecommendResult(data.recommend);
+          // Map the deterministic demo data into the conversational result shape.
+          var lang = demoState.narratorLang;
+          var recs = (data.recommend.recommendations || []).slice(0, 2).map(function (r) {
+            var nm = (r.names && (r.names[lang] || r.names.en)) || r.crop;
+            return { crop_id: r.crop, crop_name: nm, why: r.reason || "" };
+          });
+          renderRecommendResult({ recommendations: recs });
         }
       },
       {
@@ -1461,25 +1481,49 @@
       {
         caption: demoStr("demoStep3"),
         run: function () {
-          // The RSK confirmation is narrated over the diagnosis result; the real
-          // confirm + alert already happened server-side in /api/demo/run.
-        }
+          // Show the officer portal: the case under "AI needs review", then the
+          // officer confirming late blight. The real confirm + alert already
+          // happened server-side in /api/demo/run; this stages the portal view.
+          showStagedOfficerDemo();
+        },
+        speakText: demoStr("demoStep3")
       },
       {
         caption: demoStr("demoStep4"),
         run: function () {
-          applyDemoLang("te"); // Lakshmi's phone is in Telugu
+          // Show Lakshmi's alert in Telugu (the story point: she's warned in HER
+          // language) -- but the narration/voice-over stays in the viewer's chosen
+          // language, so no speakLang/speakText override here (advanceDemo speaks
+          // the caption in narratorLang).
+          applyDemoLang("te");
           showScreen("alerts", true);
           renderAlerts({ alerts: data.alerts.lakshmi.alerts });
-        },
-        speakLang: "te",
-        speakText: window.KM_STRINGS.te.alertsSummarySpoken(data.alerts.lakshmi.alerts.length)
+        }
       }
     ];
   }
 
+  // Staged officer-portal beat for the guided demo (reuses the intro's portal
+  // markup): hide the farmer screens and show the /admin-style view in place.
+  function showStagedOfficerDemo() {
+    Object.keys(SECTION_IDS).forEach(function (k) {
+      var e = $(SECTION_IDS[k]);
+      if (e) e.hidden = true;
+    });
+    var host = $("demo-officer");
+    host.innerHTML = '<div class="intro-stage intro-enter">' + stagedOfficerHTML(demoDict(), false) + "</div>";
+    host.hidden = false;
+    var portal = host.querySelector(".intro-portal");
+    var delay = reducedMotion() ? 0 : 1500;
+    setTimeout(function () { if (portal) portal.classList.add("confirmed"); }, delay);
+  }
+
   function advanceDemo() {
     clearTimeout(demoState.timer);
+    clearTimeout(demoState.maxTimer);
+    var myGen = ++demoState.gen;
+    $("demo-officer").hidden = true; // each step starts clean; only the officer step shows it
+
     demoState.index += 1;
     var step = demoState.steps[demoState.index];
     if (!step) return;
@@ -1490,20 +1534,28 @@
     } catch (err) {
       /* a rendering hiccup must not halt the walkthrough */
     }
+    updateDemoProgress();
 
     window.KM_SPEECH.stopSpeaking();
     var tag = window.KM_LOCALE_TAGS[step.speakLang || demoState.narratorLang] || "en-IN";
-    window.KM_SPEECH.speak(step.speakText || step.caption, tag);
 
-    updateDemoProgress();
-
+    // Advance only after BOTH the minimum beat time AND the voice-over finish --
+    // the screen never changes mid-sentence. TTS is optional (speak() calls back
+    // immediately when unavailable), so captions still pace the walkthrough.
     var isLast = demoState.index === demoState.steps.length - 1;
-    if (isLast) {
-      showDemoEndControls();
-    } else {
-      $("demo-next-btn").focus();
-      demoState.timer = setTimeout(advanceDemo, DEMO_STEP_MS);
+    var minDone = false, speechDone = false;
+    function proceed() {
+      if (myGen !== demoState.gen) return;
+      if (!(minDone && speechDone)) return;
+      if (isLast) { showDemoEndControls(); }
+      else { $("demo-next-btn").focus(); advanceDemo(); }
     }
+    demoState.timer = setTimeout(function () { minDone = true; proceed(); }, DEMO_STEP_MS);
+    // Safety cap so a stuck speech engine can't freeze the walkthrough.
+    demoState.maxTimer = setTimeout(function () {
+      if (myGen === demoState.gen) { isLast ? showDemoEndControls() : advanceDemo(); }
+    }, DEMO_STEP_MS + 15000);
+    window.KM_SPEECH.speak(step.speakText || step.caption, tag, function () { speechDone = true; proceed(); });
   }
 
   function setDemoCaption(stepLabel, caption) {
@@ -1518,6 +1570,8 @@
 
   function showDemoEndControls() {
     clearTimeout(demoState.timer);
+    clearTimeout(demoState.maxTimer);
+    demoState.gen++; // stop any pending scene callback
     $("demo-next-btn").disabled = true;
     $("demo-replay-btn").hidden = false;
     $("demo-replay-btn").focus();
@@ -1539,9 +1593,12 @@
 
   function exitDemo() {
     clearTimeout(demoState.timer);
+    clearTimeout(demoState.maxTimer);
+    demoState.gen++;
     window.KM_SPEECH.stopSpeaking();
     state.demoActive = false;
     $("demo-overlay").hidden = true;
+    $("demo-officer").hidden = true;
     document.body.classList.remove("demo-running");
     applyDemoLang(demoState.narratorLang); // restore the judge's language
     // Return to wherever the demo makes sense to exit to: the app home if signed
@@ -1570,6 +1627,200 @@
     $("demo-exit-btn").addEventListener("click", exitDemo);
   }
 
+  // ---- cinematic intro (scripted, pre-staged; no live AI) -------------------------
+
+  var INTRO_SEEN_KEY = "kisanmate_intro_seen";
+  var introState = { index: -1, timer: null, maxTimer: null, gen: 0, onDone: null };
+
+  function introSeen() { return localStorage.getItem(INTRO_SEEN_KEY) === "1"; }
+  function reducedMotion() {
+    return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }
+
+  // A sick tomato leaf, drawn inline so no image asset / network is needed.
+  var LEAF_SVG =
+    '<svg class="intro-leaf" viewBox="0 0 100 100" role="img" aria-label="sick tomato leaf">' +
+    '<path d="M50 92 C18 76 14 34 50 10 C86 34 82 76 50 92 Z" fill="#5b8c3e"/>' +
+    '<path d="M50 90 L50 18" stroke="#3d6b28" stroke-width="2"/>' +
+    '<circle cx="40" cy="44" r="6.5" fill="#6b4a2b"/><circle cx="59" cy="54" r="5" fill="#6b4a2b"/>' +
+    '<circle cx="46" cy="66" r="4.5" fill="#7a5230"/><circle cx="63" cy="38" r="3.5" fill="#7a5230"/></svg>';
+
+  function segmentsHTML(filled, total) {
+    var out = "";
+    for (var i = 0; i < total; i++) out += '<span class="segment' + (i < filled ? " segment-filled" : "") + '"></span>';
+    return out;
+  }
+
+  // Reusable staged officer-portal view (also used by the guided demo), so the
+  // intro shows the REAL portal look driven by fixed content.
+  function stagedOfficerHTML(d, confirmed) {
+    return '' +
+      '<div class="intro-portal' + (confirmed ? " confirmed" : "") + '">' +
+      '  <div class="intro-portal-head">🛡️ RSK Officer Portal</div>' +
+      '  <div class="intro-portal-tabs">' +
+      '    <span class="intro-tab intro-tab-active">AI needs review · 1</span>' +
+      '    <span class="intro-tab">Farmer disputed</span>' +
+      '  </div>' +
+      '  <div class="intro-portal-case">' +
+      '    <div class="intro-portal-row"><strong>Ramesh</strong> · ' + (d.crops.tomato) + ' · Guntur</div>' +
+      '    <div class="intro-portal-ai">AI: ' + d.conditions.late_blight + " / " + d.conditions.early_blight + ' ?</div>' +
+      '    <button class="intro-confirm-btn" type="button" tabindex="-1">✓ Confirm: ' + d.conditions.late_blight + '</button>' +
+      '    <div class="intro-confirmed-stamp">✓ ' + d.conditions.late_blight + '</div>' +
+      '  </div>' +
+      '</div>';
+  }
+
+  function introScenes() {
+    var d = dict();
+    return [
+      {
+        ms: 3000, caption: t("introScene1"),
+        html:
+          '<div class="intro-card">' +
+          '  <div class="intro-profile"><span class="intro-avatar" aria-hidden="true">🧑‍🌾</span>' +
+          '    <div><div class="intro-name">Ramesh</div><div class="intro-sub">Guntur</div></div></div>' +
+          '  <div class="intro-chips">' +
+          '    <span class="intro-chip">🍅 ' + d.crops.tomato + '</span>' +
+          '    <span class="intro-chip">🪨 ' + d.soils.black + '</span>' +
+          '    <span class="intro-chip">📍 Guntur</span></div>' +
+          '</div>'
+      },
+      {
+        ms: 3000, caption: t("introScene2"),
+        html:
+          '<div class="intro-card">' +
+          '  <div class="intro-photo">' + LEAF_SVG + '</div>' +
+          '  <div class="thinking-state intro-thinking">' +
+          '    <svg class="icon icon-lg spinner-icon" aria-hidden="true"><use href="#icon-spinner"></use></svg>' +
+          '    <p>' + t("thinking") + '</p></div>' +
+          '</div>'
+      },
+      {
+        ms: 3500, caption: t("introScene3"),
+        html:
+          '<div class="intro-card result-card">' +
+          '  <div class="status-pill status-attention">' +
+          '    <svg class="icon" aria-hidden="true"><use href="#icon-alert-triangle"></use></svg>' +
+          '    <span>' + t("statusEscalate") + '</span></div>' +
+          '  <h2 class="result-condition">' + d.conditions.late_blight + " / " + d.conditions.early_blight + ' ?</h2>' +
+          '  <div class="confidence-block"><span class="confidence-label">' + t("confidenceLabel") + '</span>' +
+          '    <div class="segment-row" role="img" aria-label="' + t("confidenceUncertain") + '">' + segmentsHTML(2, 5) + '</div>' +
+          '    <span class="confidence-word">' + t("confidenceUncertain") + '</span></div>' +
+          '  <div class="explain-block"><span class="explain-label">' + t("explainWhatToDo") + '</span>' +
+          '    <p>' + t("introDxNote") + '</p></div>' +
+          '</div>'
+      },
+      {
+        ms: 3500, caption: t("introScene4"),
+        html: stagedOfficerHTML(d, false),
+        after: function (stage) {
+          // The officer confirms partway through the scene (or immediately if
+          // motion is reduced), so the "confirmed" stamp lands during the beat.
+          var portal = stage.querySelector(".intro-portal");
+          var delay = reducedMotion() ? 0 : 1500;
+          var tmr = setTimeout(function () { if (portal) portal.classList.add("confirmed"); }, delay);
+          introState.subTimers.push(tmr);
+        }
+      },
+      {
+        ms: 4000, caption: t("introScene5"),
+        html:
+          '<div class="intro-map" role="img" aria-label="' + t("introScene5") + '">' +
+          '  <span class="intro-radius" aria-hidden="true"></span>' +
+          '  <span class="map-dot map-dot-source" style="left:50%;top:58%"><span class="map-label">Ramesh</span></span>' +
+          '  <span class="map-dot map-dot-alert" style="left:50%;top:34%">' +
+          '    <span class="map-label">Lakshmi · ' + d.crops.tomato + '</span>' +
+          '    <span class="map-badge alert">' + t("introWarned") + '</span></span>' +
+          '  <span class="map-dot map-dot-safe" style="left:78%;top:62%">' +
+          '    <span class="map-label">Venkat · ' + d.crops.rice + '</span>' +
+          '    <span class="map-badge safe">' + t("introSafe") + '</span></span>' +
+          '  <span class="map-dot map-dot-safe" style="left:48%;top:94%">' +
+          '    <span class="map-label">Sita</span>' +
+          '    <span class="map-badge safe">' + t("introSafe") + '</span></span>' +
+          '</div>'
+      },
+      {
+        ms: 2600, caption: t("introScene6"),
+        html:
+          '<div class="intro-finale"><span class="intro-logo" aria-hidden="true">🌾</span>' +
+          '<div class="intro-finale-title">KisanMate</div></div>'
+      }
+    ];
+  }
+
+  function startIntro(onDone) {
+    introState.onDone = onDone || function () {};
+    introState.index = -1;
+    introState.subTimers = [];
+    window.KM_SPEECH.stopSpeaking();
+    var overlay = $("intro-overlay");
+    overlay.hidden = false;
+    overlay.classList.toggle("intro-reduced", reducedMotion());
+    document.body.classList.add("intro-running");
+    advanceIntro();
+  }
+
+  function advanceIntro() {
+    clearTimeout(introState.timer);
+    clearTimeout(introState.maxTimer);
+    (introState.subTimers || []).forEach(clearTimeout);
+    introState.subTimers = [];
+    var myGen = ++introState.gen;
+
+    introState.index += 1;
+    var scenes = introScenes();
+    if (introState.index >= scenes.length) { finishIntro(); return; }
+    var scene = scenes[introState.index];
+
+    var stage = $("intro-stage");
+    stage.classList.remove("intro-enter");
+    stage.innerHTML = scene.html;
+    void stage.offsetWidth; // restart the enter transition
+    stage.classList.add("intro-enter");
+    if (scene.after) scene.after(stage);
+
+    $("intro-caption").textContent = scene.caption;
+    var scenesLen = scenes.length;
+    $("intro-progress-fill").style.width = Math.round(((introState.index + 1) / scenesLen) * 100) + "%";
+
+    // Advance only after BOTH the minimum beat time has passed AND the optional
+    // voice-over has finished -- so the screen never changes mid-sentence. TTS is
+    // optional: if unavailable, speak() calls back immediately and captions carry it.
+    var isLast = introState.index === scenesLen - 1;
+    var minDone = false, speechDone = false;
+    function maybeNext() {
+      if (myGen !== introState.gen) return;
+      if (minDone && speechDone) { isLast ? finishIntro() : advanceIntro(); }
+    }
+    introState.timer = setTimeout(function () { minDone = true; maybeNext(); }, scene.ms);
+    // Safety cap so a stuck speech engine can never freeze the intro.
+    introState.maxTimer = setTimeout(function () {
+      if (myGen === introState.gen) { isLast ? finishIntro() : advanceIntro(); }
+    }, scene.ms + 12000);
+    window.KM_SPEECH.stopSpeaking();
+    window.KM_SPEECH.speak(scene.caption, localeTag(), function () { speechDone = true; maybeNext(); });
+  }
+
+  function finishIntro() {
+    introState.gen++; // invalidate any pending scene callbacks
+    clearTimeout(introState.timer);
+    clearTimeout(introState.maxTimer);
+    (introState.subTimers || []).forEach(clearTimeout);
+    introState.subTimers = [];
+    window.KM_SPEECH.stopSpeaking();
+    localStorage.setItem(INTRO_SEEN_KEY, "1");
+    $("intro-overlay").hidden = true;
+    document.body.classList.remove("intro-running");
+    var done = introState.onDone;
+    introState.onDone = null;
+    if (done) done();
+  }
+
+  function wireIntro() {
+    // Skip is available at all times; skipping and finishing both go to login.
+    $("intro-skip-btn").addEventListener("click", finishIntro);
+  }
+
   // ---- boot -----------------------------------------------------------------------
 
   function init() {
@@ -1585,6 +1836,7 @@
     wireRecommend();
     wireAlerts();
     wireDemo();
+    wireIntro();
 
     // Language is applied whenever it is known so onboarding screens are localized.
     if (state.lang) {

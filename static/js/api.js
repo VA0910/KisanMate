@@ -147,6 +147,20 @@
     );
   }
 
+  // Conversational, voice-first recommendation: a free-form question + the
+  // farmer's profile context -> a specific, grounded crop recommendation.
+  function recommendAsk(farmerId, question) {
+    return requestJson(
+      "/api/recommend/ask",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ farmer_id: farmerId, question: question })
+      },
+      30000
+    );
+  }
+
   function getAlerts(farmerId) {
     return requestJson("/api/alerts/" + encodeURIComponent(farmerId), { method: "GET" }, 15000);
   }
@@ -200,6 +214,7 @@
     logTelemetry: logTelemetry,
     diagnose: diagnose,
     recommend: recommend,
+    recommendAsk: recommendAsk,
     getAlerts: getAlerts,
     confirm: confirm,
     dispute: dispute,

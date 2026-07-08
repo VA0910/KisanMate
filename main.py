@@ -27,6 +27,8 @@ from explain import (
     combine_explanation,
     explain_fusion,
     explain_recommendations,
+    fallback_recommendation,
+    recommend_conversational,
     recommendation_note,
     template_explanation,
     template_message,
@@ -899,6 +901,105 @@ def recommend(request: RecommendRequest):
         "season": season,
         "context_note": recommendation_note(context, lang),
         "recommendations": [rec.model_dump() for rec in recommendations],
+    }
+
+
+class RecommendAskRequest(BaseModel):
+    farmer_id: str
+    question: str = ""
+
+
+@app.post("/api/recommend/ask")
+def recommend_ask(request: RecommendAskRequest):
+    """Conversational, voice-first crop recommendation (PROJECT_SPEC.md).
+
+    Takes the farmer's free-form question plus their full profile context (soil,
+    location, season/weather from today's date, current & recent crops) and a
+    GROUNDED shortlist from the crops DB, and asks Gemini for one or two specific
+    crops with a structured "why" (soil, season/weather, rotation). If Gemini
+    fails, falls back to the deterministic top crop(s) with a template reason --
+    same shape, so voice/UI are identical.
+    """
+    question = (request.question or "").strip()
+
+    try:
+        farmer = firestore_client.get_farmer(request.farmer_id)
+    except Exception:
+        farmer = None
+    lang = farmer.lang if farmer else "en"
+    season = current_season()
+
+    try:
+        crops = firestore_client.list_crops()
+    except Exception as exc:
+        _log_event("recommend_ask_error", "deterministic", str(exc))
+        raise HTTPException(status_code=503, detail="recommendation temporarily unavailable")
+
+    soil_type = farmer.soil_type if farmer else None
+    docs_by_id = {c.id: c for c in crops}
+
+    # Grounding shortlist: the crops that actually fit this field, so Gemini
+    # recommends realistic options rather than hallucinating.
+    ranked = rank_crops(crops, soil_type=soil_type, season=season, region=None, limit=8)
+    grounding = []
+    for rec in ranked:
+        doc = docs_by_id.get(rec.crop)
+        if doc is None:
+            continue
+        grounding.append({
+            "crop_id": doc.id,
+            "name": doc.names.en,
+            "seasons": doc.seasons,
+            "soil_types": doc.soil_types,
+            "water_need": doc.water_need,
+            "susceptible_diseases": doc.susceptible_diseases,
+        })
+
+    # Current/recent crops drive the rotation reasoning ("after tomatoes...").
+    current_ids = [c.crop_id for c in (farmer.current_crops if farmer else [])]
+    prev_crop_name = None
+    if current_ids and docs_by_id.get(current_ids[0]) is not None:
+        pnames = docs_by_id[current_ids[0]].names.model_dump()
+        prev_crop_name = pnames.get(lang) or pnames.get("en") or current_ids[0]
+
+    context = None
+    if farmer is not None:
+        try:
+            context = build_context(farmer)
+        except Exception as exc:
+            _log_event("recommend_ask_context_fallback", "context_data", str(exc), fallback_used=True)
+
+    weather = None
+    if context is not None:
+        weather = {
+            "temp_c": context.weather.temp_c,
+            "humidity_pct": context.weather.humidity_pct,
+            "rain_48h_mm": context.weather.rain_48h_mm,
+            "source": context.weather.source,
+        }
+    profile = {
+        "soil_type": soil_type,
+        "location": farmer.location.mandal if farmer else None,
+        "season": season,
+        "weather": weather,
+        "current_crops": current_ids,
+    }
+
+    try:
+        result = recommend_conversational(question, profile, grounding, lang)
+    except RecommendExplainError as exc:
+        _log_fallback("recommend_ask_fallback", str(exc))
+        candidates = [
+            {"crop_id": g["crop_id"], "names": docs_by_id[g["crop_id"]].names.model_dump()}
+            for g in grounding
+        ]
+        result = fallback_recommendation(candidates, soil_type, season, prev_crop_name, lang)
+
+    return {
+        "farmer_id": request.farmer_id,
+        "question": question,
+        "recommendations": result["recommendations"],
+        "spoken": result["spoken"],
     }
 
 

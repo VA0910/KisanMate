@@ -83,16 +83,28 @@
     }
   }
 
-  /** Speaks text aloud. A no-op (not an error) when TTS isn't available. */
-  function speak(text, localeTag) {
-    if (!ttsAvailable || !text) return;
+  /** Speaks text aloud. A no-op (not an error) when TTS isn't available.
+   *
+   * The optional onEnd callback ALWAYS fires exactly once -- when speech ends or
+   * errors, or immediately when TTS is unavailable / text is empty. Callers can
+   * use it to wait for the voice-over before advancing, without ever blocking:
+   * captions must stand on their own if TTS never speaks.
+   */
+  function speak(text, localeTag, onEnd) {
+    var done = typeof onEnd === "function" ? onEnd : function () {};
+    if (!ttsAvailable || !text) { done(); return; }
     try {
       global.speechSynthesis.cancel(); // never overlap two utterances
       var utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = localeTag;
+      var fired = false;
+      var finish = function () { if (fired) return; fired = true; done(); };
+      utterance.onend = finish;
+      utterance.onerror = finish;
       global.speechSynthesis.speak(utterance);
     } catch (err) {
       /* speaking is a nicety, never let it break the flow */
+      done();
     }
   }
 

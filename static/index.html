@@ -190,6 +190,10 @@
       <button type="submit" id="send-otp-btn" class="btn btn-primary btn-block" data-i18n="sendCode">Send code</button>
     </form>
     <button type="button" id="phone-back-btn" class="btn btn-secondary btn-block" data-i18n="back">Back</button>
+    <div class="login-links">
+      <button type="button" id="watch-intro-btn" class="link-btn" data-i18n="watchIntro">Watch intro</button>
+      <a href="/admin" class="link-btn" data-i18n="officerSignIn">RSK officer sign-in</a>
+    </div>
   </section>
 
   <!-- Screen 1c: OTP entry -->
@@ -310,6 +314,17 @@
       <svg class="icon" aria-hidden="true"><use href="#icon-logout"></use></svg>
       <span data-i18n="signOut">Sign out</span>
     </button>
+
+    <div class="profile-demo">
+      <h2 class="profile-demo-title" data-i18n="demoSectionTitle">Demo</h2>
+      <div class="demo-launch-group">
+        <button type="button" id="run-demo-btn" class="demo-launch">
+          <span class="demo-launch-icon" aria-hidden="true">▶</span>
+          <span data-i18n="runDemo">Run demo scenario</span>
+        </button>
+        <button type="button" id="reset-demo-btn" class="demo-reset" data-i18n="resetDemo">Reset demo data</button>
+      </div>
+    </div>
   </section>
 
   <!-- Screen 2: home -->
@@ -325,14 +340,6 @@
       </h2>
       <ul id="reminders-list" class="reminders-list"></ul>
     </section>
-
-    <div class="demo-launch-group">
-      <button type="button" id="run-demo-btn" class="demo-launch">
-        <span class="demo-launch-icon" aria-hidden="true">▶</span>
-        <span data-i18n="runDemo">Run demo scenario</span>
-      </button>
-      <button type="button" id="reset-demo-btn" class="demo-reset" data-i18n="resetDemo">Reset demo data</button>
-    </div>
 
     <div class="mic-wrap">
       <button type="button" id="mic-btn" class="mic-btn" aria-pressed="false" aria-labelledby="mic-status-text">
@@ -470,32 +477,23 @@
     <h1 id="recommend-heading" data-i18n="recommendCardTitle">What should I grow?</h1>
 
     <div id="recommend-body" aria-live="polite">
-      <form id="recommend-form" novalidate>
-        <p data-i18n="recommendInstruction">Tell us about your field</p>
-
-        <fieldset class="option-fieldset">
-          <legend data-i18n="soilLabel">Soil type</legend>
-          <div id="soil-options" class="chip-group"></div>
-        </fieldset>
-
-        <fieldset class="option-fieldset">
-          <legend data-i18n="zoneLabel">Your area</legend>
-          <div id="zone-options" class="chip-group"></div>
-        </fieldset>
-
-        <fieldset class="option-fieldset">
-          <legend data-i18n="rainfallLabel">Rainfall</legend>
-          <div id="rainfall-options" class="chip-group"></div>
-        </fieldset>
-
-        <fieldset class="option-fieldset">
-          <legend data-i18n="groundwaterLabel">Water depth</legend>
-          <div id="groundwater-options" class="chip-group"></div>
-        </fieldset>
-
-        <p id="recommend-hint" class="hint-text"></p>
-        <button type="submit" id="show-recommend-btn" class="btn btn-primary btn-block" data-i18n="showRecommendations">Show suggestions</button>
-      </form>
+      <div id="recommend-ask">
+        <p class="recommend-lead" data-i18n="recommendAskLead">Ask me what to grow — just speak your question.</p>
+        <div class="mic-wrap">
+          <button type="button" id="recommend-mic-btn" class="mic-btn" aria-pressed="false" aria-labelledby="recommend-mic-status">
+            <svg class="icon icon-lg" aria-hidden="true"><use href="#icon-mic"></use></svg>
+          </button>
+          <p id="recommend-mic-status" class="mic-status-text" data-i18n="askMeToGrow">Ask me what to grow</p>
+          <p id="recommend-mic-hint" class="mic-hint" aria-live="polite"></p>
+        </div>
+        <p id="recommend-transcript" class="recommend-transcript" hidden></p>
+        <form id="recommend-text-form" class="recommend-text-form" novalidate>
+          <label class="field-label" for="recommend-text-input" data-i18n="orTypeQuestion">Or type your question</label>
+          <input type="text" id="recommend-text-input" class="text-input" autocomplete="off"
+                 data-i18n-placeholder="recommendQuestionPlaceholder" placeholder="e.g. what should I grow after tomatoes?">
+          <button type="submit" id="recommend-ask-btn" class="btn btn-primary btn-block" data-i18n="askBtn">Ask</button>
+        </form>
+      </div>
 
       <div id="recommend-thinking" hidden class="thinking-state">
         <svg class="icon icon-lg spinner-icon" aria-hidden="true"><use href="#icon-spinner"></use></svg>
@@ -504,12 +502,18 @@
       </div>
 
       <div id="recommend-result" hidden>
-        <p id="recommend-intro" data-i18n="recommendResultIntro">Here are good crops for your field</p>
-        <ol id="recommend-list" class="crop-list"></ol>
-        <button type="button" id="recommend-start-over-btn" class="btn btn-secondary btn-block">
-          <svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
-          <span data-i18n="startOver">Start over</span>
-        </button>
+        <p id="recommend-question" class="recommend-question" hidden></p>
+        <ul id="recommend-list" class="reco-list"></ul>
+        <div class="result-actions">
+          <button type="button" id="recommend-play-btn" class="btn btn-secondary">
+            <svg class="icon" aria-hidden="true"><use href="#icon-speaker"></use></svg>
+            <span data-i18n="playAudio">Play</span>
+          </button>
+          <button type="button" id="recommend-start-over-btn" class="btn btn-secondary">
+            <svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
+            <span data-i18n="askAgain">Ask again</span>
+          </button>
+        </div>
       </div>
 
       <div id="recommend-error" hidden class="error-state">
@@ -550,6 +554,9 @@
       </div>
     </div>
   </section>
+
+  <!-- Staged officer-portal view shown during the guided demo's officer beat -->
+  <div id="demo-officer" hidden></div>
 </main>
 
 <nav class="bottom-nav" id="bottom-nav" aria-label="Main" hidden>
@@ -584,6 +591,16 @@
       <button type="button" id="demo-next-btn" class="btn btn-secondary" data-i18n="demoNext">Next</button>
       <button type="button" id="demo-exit-btn" class="btn btn-primary" data-i18n="demoExit">Exit demo</button>
     </div>
+  </div>
+</div>
+
+<!-- Cinematic intro: scripted, pre-staged scenes (no live AI), auto-advancing -->
+<div id="intro-overlay" class="intro-overlay" hidden role="region" aria-label="KisanMate intro">
+  <button type="button" id="intro-skip-btn" class="intro-skip" data-i18n="skipIntro">Skip intro</button>
+  <div id="intro-stage" class="intro-stage" aria-hidden="true"></div>
+  <div class="intro-caption-bar">
+    <div class="intro-progress" aria-hidden="true"><span id="intro-progress-fill"></span></div>
+    <p id="intro-caption" class="intro-caption" aria-live="polite"></p>
   </div>
 </div>
 
