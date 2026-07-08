@@ -17,10 +17,41 @@ KisanMate: a voice-first web app for small/marginal farmers in India, in English
 - Frontend is plain HTML/CSS/JavaScript — NO build step, NO framework, NO npm. Served by FastAPI as static files. It must be lightweight enough for a low-end Android phone on a slow connection.
 
 ## Firestore data model
-- farmers/{id}: name, phone, lang ("en"|"hi"|"te"), location {lat, lng, mandal}, crop, land_size_acres, growth_stage
+- farmers/{id}: name, phone, lang ("en"|"hi"|"te"), location {lat, lng, mandal}, crop, land_size_acres, growth_stage, soil_type, current_crops [{crop_id, planting_date}]
+- crops/{crop_id}: names {en, hi, te}, seasons [kharif|rabi|zaid], soil_types [black|red|alluvial|loam|sandy|clay], water_need [low|medium|high], regions [], cycle_days (int), growth_stages [{name, start_day, care_note}], susceptible_diseases [condition ids e.g. "late_blight"]
 - cases/{id}: farmer_id, image_note, vision (see contract), context (see contract), fusion (see contract), status ("pending"|"advised"|"escalated"|"confirmed"), officer_verdict, condition, contagious (bool), created_at
 - alerts/{id}: source_case_id, condition, tier ("watch"|"warning"|"alert"), center {lat, lng}, radius_km, recipient_ids [], created_at
 - telemetry/{id}: event, layer, detail, fallback_used (bool), created_at
+
+### Farmer profile additions
+- `soil_type` and `current_crops [{crop_id, planting_date}]` are added to farmers/{id}. Planting date is REQUIRED per crop and is what makes memory/reminders possible.
+
+### Crops collection (new)
+The single `crops/{crop_id}` collection feeds four things: crop recommendations (match soil/season/region), the diagnosis prior and community-alert crop filter (via `susceptible_diseases`), and reminders (via `cycle_days` + `growth_stages`).
+
+## Identity & authentication (replaces the `?farmer=` hack)
+- Farmers sign in with phone number + OTP. Farmers have no email and can't create one, so phone is the identity.
+- OTP is MOCKED for the prototype: the request-OTP step generates a 4-digit code and returns it so the UI can display it as "Demo OTP: XXXX" (an unattended judge must be able to proceed without a real SMS). Verify checks against the generated code. SMS delivery is the named production step.
+- First-time phone number -> create a farmer and go to profile setup. Returning phone -> go straight home. Session persists in localStorage until explicit sign-out; no re-signin until then.
+- CRITICAL: keep the existing farmer document IDs (ramesh, lakshmi, venkat, sita) UNCHANGED. Add a `phone` field to each. Auth resolves phone -> existing document. Do NOT rename document IDs or change how cases/alerts reference `farmer_id`, or the demo scenario and hero targeting break.
+
+## Location (device geolocation, NOT Earth Engine)
+- Capture real location via the browser's `navigator.geolocation` API and save {lat, lng} to the farmer profile.
+- Fallback (silent, logged): on permission denied / error / timeout, show a district picker defaulting to Guntur. This is the location layer's human-override + silent-fallback.
+
+## Memory + proactive reminders
+- Deterministic: from a crop's `planting_date` + the crop's `cycle_days` and `growth_stages`, compute the current stage and generate reminders (irrigation cadence from `water_need`, stage care notes, harvest window). Real date math, no user trigger.
+- Surface them proactively on the home screen when the app opens.
+- Production trigger is named as Cloud Scheduler -> an SMS-push endpoint; the prototype computes and shows them on load.
+
+## Profile page (user-side human override)
+A screen where the farmer views and edits location, soil_type, current_crops (add/remove, each with planting_date), language, and signs out. Changes persist and re-feed everything downstream.
+
+## Context into Gemini
+Build a `context` object from the profile (location, soil, current crop + computed growth stage) matching the existing fusion context contract, and pass it to every Gemini call (diagnosis, recommendation, explanation). Outputs must visibly use it.
+
+## Cinematic intro
+After language selection, an auto-playing scripted scene sequence tells the hero story using the real UI components with pre-staged (NOT live-AI) content, then fades into login. Skippable, plays once (localStorage flag), with a "Watch intro" link on login.
 
 ## Vision output contract (Gemini must return ONLY this JSON)
 { "image_quality": "good|poor", "crop_confirmed": "tomato|uncertain|<other>",
