@@ -1,6 +1,9 @@
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import firestore_client
@@ -10,12 +13,19 @@ from explain import ExplainError, explain_fusion, template_message
 from models import Case, ContextLocation, Farmer, FusionContext, Soil, Telemetry, Weather
 from vision import VisionError, diagnose_image
 
+STATIC_DIR = Path(__file__).parent / "static"
+
 app = FastAPI(title="KisanMate API")
+
+# The farmer-facing frontend: plain HTML/CSS/JS, no build step (PROJECT_SPEC.md).
+# Mounted under /static so it never shadows the /api/* routes below; "/" itself
+# serves static/index.html so the app still opens at the site root.
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/")
 def home():
-    return {"status": "live"}
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 class ConfirmRequest(BaseModel):

@@ -1,0 +1,9 @@
+{
+  "features": {
+    "ghcr.io/jajera/features/gcloud-cli:1": {
+      "version": "1.0.1",
+      "resolved": "ghcr.io/jajera/features/gcloud-cli@sha256:bdafd7578bc7b32851b443f8ffe350d20fae0d299a08cc803519e0526014d76b",
+      "integrity": "sha256:bdafd7578bc7b32851b443f8ffe350d20fae0d299a08cc803519e0526014d76b"
+    }
+  }
+}

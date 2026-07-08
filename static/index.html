@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1E7A34">
+<title>KisanMate</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%BE%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content" data-i18n="skipToContent">Skip to main content</a>
+
+<svg xmlns="http://www.w3.org/2000/svg" class="icon-sprite" aria-hidden="true" focusable="false">
+  <symbol id="icon-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+    <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+    <line x1="12" y1="18" x2="12" y2="22"/>
+    <line x1="8" y1="22" x2="16" y2="22"/>
+  </symbol>
+  <symbol id="icon-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+    <circle cx="12" cy="13" r="4"/>
+  </symbol>
+  <symbol id="icon-sprout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 21c-4-1-7-4-7-9 0-4 3-8 7-10 4 2 7 6 7 10 0 5-3 8-7 9z"/>
+    <line x1="12" y1="21" x2="12" y2="9"/>
+  </symbol>
+  <symbol id="icon-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+  </symbol>
+  <symbol id="icon-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <line x1="2" y1="12" x2="22" y2="12"/>
+    <path d="M12 2c3 3 3 17 0 20"/>
+    <path d="M12 2c-3 3-3 17 0 20"/>
+  </symbol>
+  <symbol id="icon-speaker" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M11 5 6 9H2v6h4l5 4z"/>
+    <path d="M15.5 8.5a5 5 0 0 1 0 7"/>
+    <path d="M18.5 5.5a9 9 0 0 1 0 13"/>
+  </symbol>
+  <symbol id="icon-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 12a9 9 0 1 1-3-6.7"/>
+    <polyline points="21 3 21 9 15 9"/>
+  </symbol>
+  <symbol id="icon-flag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 3v18"/>
+    <path d="M4 4h15l-3 5 3 5H4"/>
+  </symbol>
+  <symbol id="icon-check-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <polyline points="8 12 11 15 16 9"/>
+  </symbol>
+  <symbol id="icon-alert-triangle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 2 1 21h22z"/>
+    <line x1="12" y1="9" x2="12" y2="13"/>
+    <line x1="12" y1="17" x2="12.01" y2="17"/>
+  </symbol>
+  <symbol id="icon-alert-octagon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86"/>
+    <line x1="12" y1="8" x2="12" y2="12"/>
+    <line x1="12" y1="16" x2="12.01" y2="16"/>
+  </symbol>
+  <symbol id="icon-info-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <line x1="12" y1="16" x2="12" y2="12"/>
+    <line x1="12" y1="8" x2="12.01" y2="8"/>
+  </symbol>
+  <symbol id="icon-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+    <circle cx="12" cy="12" r="10" opacity="0.25"/>
+    <path d="M12 2a10 10 0 0 1 10 10"/>
+  </symbol>
+  <symbol id="icon-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 11l9-8 9 8"/>
+    <path d="M5 10v10h14V10"/>
+  </symbol>
+</svg>
+
+<header class="app-header">
+  <div class="app-header-brand">
+    <span class="app-header-emoji" aria-hidden="true">🌾</span>
+    <span class="app-header-title" data-i18n="appName">KisanMate</span>
+  </div>
+  <button type="button" id="change-language-btn" class="icon-btn" data-i18n-aria="changeLanguage" aria-label="Change language">
+    <svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>
+  </button>
+</header>
+
+<main id="main-content">
+  <!-- Screen 1: language picker -->
+  <section id="screen-language" aria-labelledby="language-heading">
+    <h1 id="language-heading" class="multi-script-heading">
+      <span lang="en">Choose your language</span>
+      <span lang="hi">अपनी भाषा चुनें</span>
+      <span lang="te">మీ భాషను ఎంచుకోండి</span>
+    </h1>
+    <div class="lang-grid">
+      <button type="button" class="lang-card" data-lang="en" lang="en">
+        <span class="lang-card-emoji" aria-hidden="true">🌐</span>
+        <span class="lang-card-name">English</span>
+      </button>
+      <button type="button" class="lang-card" data-lang="hi" lang="hi">
+        <span class="lang-card-emoji" aria-hidden="true">🌐</span>
+        <span class="lang-card-name">हिंदी</span>
+      </button>
+      <button type="button" class="lang-card" data-lang="te" lang="te">
+        <span class="lang-card-emoji" aria-hidden="true">🌐</span>
+        <span class="lang-card-name">తెలుగు</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- Screen 2: home -->
+  <section id="screen-home" hidden aria-labelledby="home-heading">
+    <h1 id="home-heading" data-i18n="homeGreeting">Welcome</h1>
+    <p class="tagline" data-i18n="tagline">Your farm helper</p>
+
+    <div class="mic-wrap">
+      <button type="button" id="mic-btn" class="mic-btn" aria-pressed="false">
+        <svg class="icon icon-lg" aria-hidden="true"><use href="#icon-mic"></use></svg>
+      </button>
+      <p id="mic-status-text" class="mic-status-text" data-i18n="tapAndSpeak">Tap and speak</p>
+      <p id="mic-hint" class="mic-hint" aria-live="polite"></p>
+    </div>
+
+    <div class="home-actions">
+      <button type="button" id="go-diagnose-btn" class="action-card">
+        <svg class="icon icon-md" aria-hidden="true"><use href="#icon-camera"></use></svg>
+        <span class="action-card-title" data-i18n="diagnoseCardTitle">Diagnose my crop</span>
+        <span class="action-card-sub" data-i18n="diagnoseCardSub">Take a photo of your plant</span>
+      </button>
+      <button type="button" id="go-recommend-btn" class="action-card">
+        <svg class="icon icon-md" aria-hidden="true"><use href="#icon-sprout"></use></svg>
+        <span class="action-card-title" data-i18n="recommendCardTitle">What should I grow?</span>
+        <span class="action-card-sub" data-i18n="recommendCardSub">Get crop suggestions</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- Screen 3: diagnose -->
+  <section id="screen-diagnose" hidden aria-labelledby="diagnose-heading">
+    <h1 id="diagnose-heading" data-i18n="diagnoseCardTitle">Diagnose my crop</h1>
+
+    <div id="diagnose-body" aria-live="polite">
+      <div id="diagnose-capture">
+        <p data-i18n="diagnoseInstruction">Take or choose a clear photo of the leaf</p>
+
+        <div class="file-btn-wrap">
+          <input type="file" id="photo-input" accept="image/*" class="visually-hidden-input">
+          <label for="photo-input" class="file-btn">
+            <svg class="icon" aria-hidden="true"><use href="#icon-camera"></use></svg>
+            <span data-i18n="addPhoto">Add Photo</span>
+          </label>
+        </div>
+
+        <div id="photo-preview-wrap" hidden>
+          <img id="photo-preview" alt="" data-i18n-alt="photoPreviewAlt" class="photo-preview">
+          <button type="button" id="change-photo-btn" class="btn btn-secondary" data-i18n="changePhoto">Choose a different photo</button>
+        </div>
+
+        <button type="button" id="submit-diagnose-btn" class="btn btn-primary btn-block" disabled data-i18n="submitDiagnose">Check my crop</button>
+      </div>
+
+      <div id="diagnose-thinking" hidden class="thinking-state">
+        <svg class="icon icon-lg spinner-icon" aria-hidden="true"><use href="#icon-spinner"></use></svg>
+        <p data-i18n="thinking">Thinking...</p>
+        <p class="text-muted" data-i18n="thinkingSub">This can take a few seconds</p>
+      </div>
+
+      <div id="diagnose-result" hidden class="result-card">
+        <div id="result-status-pill" class="status-pill">
+          <svg class="icon" aria-hidden="true"><use id="result-status-icon" href="#icon-check-circle"></use></svg>
+          <span id="result-status-text"></span>
+        </div>
+        <h2 id="result-condition" class="result-condition"></h2>
+
+        <div id="confidence-block" class="confidence-block">
+          <span class="confidence-label" data-i18n="confidenceLabel">How sure we are</span>
+          <div id="confidence-segments" class="segment-row" role="img"></div>
+          <span id="confidence-word" class="confidence-word"></span>
+        </div>
+
+        <div class="advice-block">
+          <span class="advice-label" data-i18n="adviceLabel">What to do</span>
+          <p id="result-message"></p>
+        </div>
+
+        <div class="result-actions">
+          <button type="button" id="play-audio-btn" class="btn btn-secondary">
+            <svg class="icon" aria-hidden="true"><use href="#icon-speaker"></use></svg>
+            <span data-i18n="playAudio">Play</span>
+          </button>
+          <button type="button" id="new-photo-btn" class="btn btn-secondary">
+            <svg class="icon" aria-hidden="true"><use href="#icon-camera"></use></svg>
+            <span data-i18n="newPhoto">New Photo</span>
+          </button>
+        </div>
+        <button type="button" id="not-right-btn" class="btn btn-outline btn-block">
+          <svg class="icon" aria-hidden="true"><use href="#icon-flag"></use></svg>
+          <span data-i18n="notRight">This isn't right</span>
+        </button>
+        <p id="dispute-thanks" class="dispute-thanks" hidden></p>
+      </div>
+
+      <div id="diagnose-error" hidden class="error-state">
+        <svg class="icon icon-lg" aria-hidden="true"><use href="#icon-alert-triangle"></use></svg>
+        <p id="diagnose-error-msg"></p>
+        <button type="button" id="diagnose-retry-btn" class="btn btn-primary">
+          <svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
+          <span data-i18n="retry">Try again</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screen 4: recommend -->
+  <section id="screen-recommend" hidden aria-labelledby="recommend-heading">
+    <h1 id="recommend-heading" data-i18n="recommendCardTitle">What should I grow?</h1>
+
+    <div id="recommend-body" aria-live="polite">
+      <form id="recommend-form" novalidate>
+        <p data-i18n="recommendInstruction">Tell us about your field</p>
+
+        <fieldset class="option-fieldset">
+          <legend data-i18n="soilLabel">Soil type</legend>
+          <div id="soil-options" class="chip-group"></div>
+        </fieldset>
+
+        <fieldset class="option-fieldset">
+          <legend data-i18n="zoneLabel">Your area</legend>
+          <div id="zone-options" class="chip-group"></div>
+        </fieldset>
+
+        <fieldset class="option-fieldset">
+          <legend data-i18n="rainfallLabel">Rainfall</legend>
+          <div id="rainfall-options" class="chip-group"></div>
+        </fieldset>
+
+        <fieldset class="option-fieldset">
+          <legend data-i18n="groundwaterLabel">Water depth</legend>
+          <div id="groundwater-options" class="chip-group"></div>
+        </fieldset>
+
+        <p id="recommend-hint" class="hint-text"></p>
+        <button type="submit" id="show-recommend-btn" class="btn btn-primary btn-block" data-i18n="showRecommendations">Show suggestions</button>
+      </form>
+
+      <div id="recommend-thinking" hidden class="thinking-state">
+        <svg class="icon icon-lg spinner-icon" aria-hidden="true"><use href="#icon-spinner"></use></svg>
+        <p data-i18n="thinking">Thinking...</p>
+        <p class="text-muted" data-i18n="thinkingSub">This can take a few seconds</p>
+      </div>
+
+      <div id="recommend-result" hidden>
+        <p data-i18n="recommendResultIntro">Here are good crops for your field</p>
+        <ol id="recommend-list" class="crop-list"></ol>
+        <button type="button" id="recommend-start-over-btn" class="btn btn-secondary btn-block">
+          <svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
+          <span data-i18n="startOver">Start over</span>
+        </button>
+      </div>
+
+      <div id="recommend-error" hidden class="error-state">
+        <svg class="icon icon-lg" aria-hidden="true"><use href="#icon-alert-triangle"></use></svg>
+        <p id="recommend-error-msg"></p>
+        <button type="button" id="recommend-retry-btn" class="btn btn-primary">
+          <svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
+          <span data-i18n="retry">Try again</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screen 5: alerts -->
+  <section id="screen-alerts" hidden aria-labelledby="alerts-heading">
+    <h1 id="alerts-heading" data-i18n="alertsTitle">Your Alerts</h1>
+
+    <div id="alerts-body" aria-live="polite">
+      <div id="alerts-loading" class="thinking-state">
+        <svg class="icon icon-lg spinner-icon" aria-hidden="true"><use href="#icon-spinner"></use></svg>
+        <p data-i18n="loading">Loading...</p>
+      </div>
+
+      <ul id="alerts-list" class="alerts-list" hidden></ul>
+
+      <div id="alerts-empty" hidden class="empty-state">
+        <svg class="icon icon-lg" aria-hidden="true"><use href="#icon-check-circle"></use></svg>
+        <p data-i18n="alertsEmpty">No alerts right now. We'll let you know if there's a risk near your farm.</p>
+      </div>
+
+      <div id="alerts-error" hidden class="error-state">
+        <svg class="icon icon-lg" aria-hidden="true"><use href="#icon-alert-triangle"></use></svg>
+        <p id="alerts-error-msg"></p>
+        <button type="button" id="alerts-retry-btn" class="btn btn-primary">
+          <svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
+          <span data-i18n="retry">Try again</span>
+        </button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav class="bottom-nav" id="bottom-nav" aria-label="Main" hidden>
+  <button type="button" class="nav-btn" data-target="home">
+    <svg class="icon" aria-hidden="true"><use href="#icon-home"></use></svg>
+    <span data-i18n="navHome">Home</span>
+  </button>
+  <button type="button" class="nav-btn" data-target="diagnose">
+    <svg class="icon" aria-hidden="true"><use href="#icon-camera"></use></svg>
+    <span data-i18n="navDiagnose">Diagnose</span>
+  </button>
+  <button type="button" class="nav-btn" data-target="recommend">
+    <svg class="icon" aria-hidden="true"><use href="#icon-sprout"></use></svg>
+    <span data-i18n="navGrow">Grow</span>
+  </button>
+  <button type="button" class="nav-btn" data-target="alerts">
+    <svg class="icon" aria-hidden="true"><use href="#icon-bell"></use></svg>
+    <span data-i18n="navAlerts">Alerts</span>
+  </button>
+</nav>
+
+<div id="toast" role="status" aria-live="polite" class="toast"></div>
+
+<script src="/static/js/strings.js"></script>
+<script src="/static/js/speech.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
