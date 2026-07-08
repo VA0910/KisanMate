@@ -93,6 +93,14 @@
       profileSaved: "Profile saved.",
       profileSaveError: "We couldn't save your profile. Please try again.",
 
+      remindersTitle: "Reminders for you",
+      dueToday: "Due today",
+      reminderIrrigateToday: function (crop) { return "Time to irrigate your " + crop + "."; },
+      reminderIrrigateIn: function (crop, n) { return "Irrigate your " + crop + " in " + n + (n === 1 ? " day." : " days."); },
+      reminderHarvestNow: function (crop) { return "Harvest time for your " + crop + "."; },
+      reminderHarvestIn: function (crop, n) { return "Harvest window for your " + crop + " in " + n + (n === 1 ? " day." : " days."); },
+      reminderStageCare: function (crop) { return "Your " + crop + ":"; },
+
       homeGreeting: "Welcome",
       tapAndSpeak: "Tap and speak",
       listening: "Listening...",
@@ -272,6 +280,14 @@
       profileSaved: "प्रोफ़ाइल सहेजी गई।",
       profileSaveError: "हम आपकी प्रोफ़ाइल सहेज नहीं पाए। कृपया फिर से कोशिश करें।",
 
+      remindersTitle: "आपके लिए याद-दिलावे",
+      dueToday: "आज करना है",
+      reminderIrrigateToday: function (crop) { return crop + " की सिंचाई का समय है।"; },
+      reminderIrrigateIn: function (crop, n) { return crop + " की सिंचाई " + n + " दिन में करें।"; },
+      reminderHarvestNow: function (crop) { return crop + " की कटाई का समय है।"; },
+      reminderHarvestIn: function (crop, n) { return crop + " की कटाई " + n + " दिन में।"; },
+      reminderStageCare: function (crop) { return "आपकी " + crop + " फ़सल:"; },
+
       homeGreeting: "नमस्ते",
       tapAndSpeak: "बोलने के लिए दबाएं",
       listening: "सुन रहे हैं...",
@@ -450,6 +466,14 @@
       saveProfile: "మార్పులు సేవ్ చేయండి",
       profileSaved: "ప్రొఫైల్ సేవ్ అయింది.",
       profileSaveError: "మేము మీ ప్రొఫైల్‌ను సేవ్ చేయలేకపోయాము. దయచేసి మళ్ళీ ప్రయత్నించండి.",
+
+      remindersTitle: "మీ కోసం రిమైండర్లు",
+      dueToday: "ఈరోజు చేయాలి",
+      reminderIrrigateToday: function (crop) { return "మీ " + crop + " కి నీరు పెట్టే సమయం."; },
+      reminderIrrigateIn: function (crop, n) { return "మీ " + crop + " కి " + n + " రోజుల్లో నీరు పెట్టండి."; },
+      reminderHarvestNow: function (crop) { return "మీ " + crop + " కోత సమయం."; },
+      reminderHarvestIn: function (crop, n) { return "మీ " + crop + " కోత " + n + " రోజుల్లో."; },
+      reminderStageCare: function (crop) { return "మీ " + crop + ":"; },
 
       homeGreeting: "నమస్కారం",
       tapAndSpeak: "మాట్లాడటానికి నొక్కండి",

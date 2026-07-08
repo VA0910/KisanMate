@@ -170,6 +170,7 @@
   // ---- routing ---------------------------------------------------------------
 
   var SCREEN_ENTER_HOOKS = {
+    home: loadReminders,
     diagnose: resetDiagnoseScreen,
     recommend: function () { showRecommendSubState("form"); },
     alerts: loadAlerts
@@ -238,6 +239,76 @@
   }
 
   // ---- Home ---------------------------------------------------------------------
+
+  // Proactive cycle-based reminders: fetched automatically when home opens and
+  // rendered as a card at the top -- no button, no user trigger (the date math
+  // runs server-side from each crop's planting_date).
+  function loadReminders() {
+    var card = $("reminders-card");
+    if (!card) return;
+    if (!isSignedIn() || state.demoActive) { card.hidden = true; return; }
+    window.KM_API.getReminders(state.farmerId)
+      .then(renderReminders)
+      .catch(function () { card.hidden = true; }); // silent: reminders are a bonus, never an error
+  }
+
+  var REMINDER_EMOJI = { irrigation: "💧", stage_care: "🌱", harvest: "🌾" };
+
+  function reminderCropName(rem) {
+    var names = rem.crop_names || {};
+    return names[state.lang] || names.en || rem.crop_id || "";
+  }
+
+  function reminderText(rem) {
+    var crop = reminderCropName(rem);
+    var n = rem.days_until;
+    if (rem.type === "irrigation") {
+      return n <= 0 ? t("reminderIrrigateToday")(crop) : t("reminderIrrigateIn")(crop, n);
+    }
+    if (rem.type === "harvest") {
+      return n <= 0 ? t("reminderHarvestNow")(crop) : t("reminderHarvestIn")(crop, n);
+    }
+    // stage_care: the crop's current-stage care note (English, from the crop DB)
+    return t("reminderStageCare")(crop) + " " + (rem.care_note || "");
+  }
+
+  function renderReminders(data) {
+    var card = $("reminders-card");
+    var list = $("reminders-list");
+    if (!card || !list) return;
+    var reminders = (data && data.reminders) || [];
+    if (!reminders.length) { card.hidden = true; return; }
+
+    list.innerHTML = "";
+    reminders.forEach(function (rem) {
+      // A "due today" badge marks time-critical actions (watering/harvest);
+      // stage-care advice isn't time-critical, so it isn't badged.
+      var isDue = rem.days_until <= 0 && rem.type !== "stage_care";
+      var li = document.createElement("li");
+      li.className = "reminder-item reminder-" + rem.type + (isDue ? " reminder-due" : "");
+
+      var emoji = document.createElement("span");
+      emoji.className = "reminder-emoji";
+      emoji.setAttribute("aria-hidden", "true");
+      emoji.textContent = REMINDER_EMOJI[rem.type] || "🔔";
+      li.appendChild(emoji);
+
+      var text = document.createElement("span");
+      text.className = "reminder-text";
+      text.textContent = reminderText(rem);
+      li.appendChild(text);
+
+      if (isDue) {
+        var badge = document.createElement("span");
+        badge.className = "reminder-badge";
+        badge.textContent = t("dueToday");
+        li.appendChild(badge);
+      }
+
+      list.appendChild(li);
+    });
+    card.hidden = false;
+  }
 
   function wireHome() {
     $("mic-btn").addEventListener("click", handleMicTap);
@@ -910,7 +981,17 @@
       opt.textContent = cropName(crop);
       select.appendChild(opt);
     });
-    if (prefill && prefill.crop_id) select.value = prefill.crop_id;
+    if (prefill && prefill.crop_id) {
+      // Defensive: if the catalog didn't include this crop (not yet loaded /
+      // unavailable), still add it so the prefilled value sticks and isn't lost.
+      if (!select.querySelector('option[value="' + prefill.crop_id + '"]')) {
+        var fallback = document.createElement("option");
+        fallback.value = prefill.crop_id;
+        fallback.textContent = prefill.crop_id;
+        select.appendChild(fallback);
+      }
+      select.value = prefill.crop_id;
+    }
 
     var date = document.createElement("input");
     date.type = "date";
@@ -1096,16 +1177,19 @@
   }
 
   function openProfilePage() {
-    ensureCropsCatalog().catch(function () {});
-    // Load the freshest farmer from the server so edits reflect stored truth.
+    // Load the crops catalog BEFORE rendering, so prefilled crop rows can select
+    // their crop (otherwise the <select> has no matching option and the crop is
+    // silently dropped on save).
     var cached = state.session && state.session.farmer ? state.session.farmer : {};
-    window.KM_API.getFarmer(state.farmerId)
-      .then(function (farmer) { renderProfilePage(farmer); showScreen("profile"); })
-      .catch(function (err) {
-        if (isStaleSession(err)) { handleStaleSession(); return; }
-        renderProfilePage(cached);
-        showScreen("profile");
-      });
+    ensureCropsCatalog().catch(function () {}).then(function () {
+      return window.KM_API.getFarmer(state.farmerId)
+        .then(function (farmer) { renderProfilePage(farmer); showScreen("profile"); })
+        .catch(function (err) {
+          if (isStaleSession(err)) { handleStaleSession(); return; }
+          renderProfilePage(cached);
+          showScreen("profile");
+        });
+    });
   }
 
   function renderProfilePage(farmer) {

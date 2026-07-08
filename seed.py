@@ -7,10 +7,18 @@ Coordinates are offset from Guntur town (16.3067 N, 80.4365 E) using
 1 deg latitude ~= 111 km and 1 deg longitude ~= 111 km * cos(latitude),
 so the seeded farmers sit at roughly the distances the spec calls for.
 """
+from datetime import date, timedelta
+
 from firestore_client import upsert_farmer
-from models import Farmer, FarmerLocation
+from models import CurrentCrop, Farmer, FarmerLocation
 
 GUNTUR = (16.3067, 80.4365)
+
+# Ramesh's tomato was planted a whole number of irrigation cadences ago (tomato
+# is water_need "medium" -> a 5-day cadence), so an irrigation reminder falls DUE
+# TODAY the moment the demo is seeded -- it shows on the home screen at login with
+# no action taken. 60 days also puts the crop at its flowering stage.
+RAMESH_PLANTING_DATE = (date.today() - timedelta(days=60)).isoformat()
 
 DEMO_FARMERS = [
     Farmer(
@@ -22,6 +30,8 @@ DEMO_FARMERS = [
         crop="tomato",
         land_size_acres=2.5,
         growth_stage="flowering",
+        soil_type="black",
+        current_crops=[CurrentCrop(crop_id="tomato", planting_date=RAMESH_PLANTING_DATE)],
     ),
     Farmer(
         id="lakshmi",

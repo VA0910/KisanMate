@@ -17,6 +17,7 @@ import weather as weather_source
 from engine.crop_recommender import current_season, rank_crops
 from engine.fusion import fuse
 from engine.growth import compute_stage
+from engine.reminders import reminders_for_farmer
 from engine.prior_table import CONTAGIOUS
 from explain import (
     ExplainError,
@@ -387,6 +388,40 @@ def search_places(q: str = ""):
     except Exception as exc:
         _log_event("place_search_error", "location", str(exc))
         return {"places": []}
+
+
+@app.get("/api/reminders/{farmer_id}")
+def get_reminders(farmer_id: str):
+    """Cycle-based reminders for the farmer, computed deterministically from each
+    current crop's planting_date + the crop DB (engine.reminders). The home screen
+    calls this on load and shows them proactively -- no user action.
+
+    PRODUCTION NOTE: the production push trigger is Cloud Scheduler calling an
+    SMS-push endpoint over this same computation; the prototype computes on load.
+    """
+    try:
+        farmer = firestore_client.get_farmer(farmer_id)
+    except Exception as exc:
+        _log_event("reminders_lookup_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="reminders temporarily unavailable")
+    if farmer is None:
+        raise HTTPException(status_code=404, detail="farmer not found")
+
+    # Cache crop lookups within this request (a farmer may grow the same crop
+    # more than once, and get_crop is a Firestore read).
+    crop_cache: dict = {}
+
+    def crop_lookup(crop_id):
+        if crop_id not in crop_cache:
+            try:
+                crop_cache[crop_id] = firestore_client.get_crop(crop_id)
+            except Exception as exc:
+                _log_event("reminders_crop_fallback", "context_data", str(exc), fallback_used=True)
+                crop_cache[crop_id] = None
+        return crop_cache[crop_id]
+
+    reminders = reminders_for_farmer(farmer, crop_lookup)
+    return {"farmer_id": farmer_id, "reminders": reminders}
 
 
 @app.post("/api/telemetry")

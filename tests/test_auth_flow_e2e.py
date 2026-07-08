@@ -19,11 +19,12 @@ import os
 import socket
 import subprocess
 import time
+from datetime import date
 
 import pytest
 
 pytest.importorskip("playwright.sync_api")
-from playwright.sync_api import sync_playwright  # noqa: E402
+from playwright.sync_api import expect, sync_playwright  # noqa: E402
 
 import firestore_client  # noqa: E402
 
@@ -209,6 +210,31 @@ def test_reload_keeps_signed_in(page, base_url):
     page.reload()
     page.wait_for_selector("#screen-home:not([hidden])")
     assert "Ramesh" in page.inner_text("#home-heading")
+
+
+def test_reminder_shows_on_home_and_changes_with_planting_date(page, base_url):
+    # Ramesh's seeded tomato was planted 60 days ago -> an irrigation reminder is
+    # DUE TODAY, computed from real dates with no action taken.
+    _sign_in(page, base_url, RAMESH_PHONE)
+    page.wait_for_selector("#screen-home:not([hidden])")
+    page.wait_for_selector("#reminders-card:not([hidden])")
+    # An irrigation reminder is present and marked due today (badge).
+    expect(page.locator("#reminders-card .reminder-irrigation")).to_have_count(1)
+    expect(page.locator("#reminders-card .reminder-badge")).to_have_count(1)
+
+    # Change the tomato's planting date to today on the profile page.
+    page.click("#open-profile-btn")
+    page.wait_for_selector("#screen-profile:not([hidden])")
+    page.wait_for_selector("#profile-crops-list .crop-row")
+    page.fill("#profile-crops-list .crop-row-date", date.today().isoformat())
+    page.click("#profile-save-btn")
+    page.wait_for_selector("#screen-home:not([hidden])")
+
+    # Reminder recomputed (expect() polls until the background refresh lands):
+    # no longer due today, and the next irrigation is 5 days out.
+    page.wait_for_selector("#reminders-card:not([hidden])")
+    expect(page.locator("#reminders-card .reminder-badge")).to_have_count(0)
+    expect(page.locator("#reminders-card")).to_contain_text("5")
 
 
 def test_profile_edit_soil_persists_across_reload(page, base_url):

@@ -388,6 +388,45 @@ section[id^="screen-"] > h1 { outline: none; }
 
 #screen-home { text-align: center; }
 
+/* proactive reminders card (top of home) */
+.reminders-card {
+  text-align: left;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.reminders-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 1.15rem;
+  margin: 0 0 var(--space-2);
+}
+.reminders-emoji { font-size: 1.3rem; }
+.reminders-list { list-style: none; margin: 0; padding: 0; }
+.reminder-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+.reminder-item:first-child { border-top: none; }
+.reminder-emoji { font-size: 1.5rem; flex-shrink: 0; }
+.reminder-text { flex: 1; }
+.reminder-badge {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 2px var(--space-1);
+  border-radius: 999px;
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.reminder-due .reminder-text { font-weight: 700; }
+
 .tagline { color: var(--text-muted); margin-bottom: var(--space-4); }
 
 .mic-wrap { margin-bottom: var(--space-5); }

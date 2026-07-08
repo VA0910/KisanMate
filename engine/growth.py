@@ -69,6 +69,7 @@ def compute_stage(planting_date, cycle_days: int, growth_stages, today: Optional
 
     return {
         "name": _stage_name(current),
+        "start_day": _stage_start(current),
         "day": day,
         "cycle_days": cycle_days,
         "care_note": _stage_care_note(current),

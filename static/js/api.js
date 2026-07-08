@@ -101,6 +101,10 @@
     return requestJson("/api/crops", { method: "GET" }, 15000);
   }
 
+  function getReminders(farmerId) {
+    return requestJson("/api/reminders/" + encodeURIComponent(farmerId), { method: "GET" }, 15000);
+  }
+
   function searchPlaces(query) {
     return requestJson(
       "/api/places?q=" + encodeURIComponent(query),
@@ -182,6 +186,7 @@
     getFarmer: getFarmer,
     updateFarmer: updateFarmer,
     getCrops: getCrops,
+    getReminders: getReminders,
     searchPlaces: searchPlaces,
     logTelemetry: logTelemetry,
     diagnose: diagnose,
