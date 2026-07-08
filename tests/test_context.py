@@ -105,6 +105,23 @@ def test_places_search_degrades_on_geocoder_failure(monkeypatch):
     assert resp.json()["places"] == []
 
 
+# --- reverse geocoding (device location -> district name) ------------------------
+
+def test_places_reverse_parses_geocoder(monkeypatch):
+    monkeypatch.setattr(main, "_reverse_geocode", lambda lat, lng: "Kanpur, Uttar Pradesh")
+    resp = client.get("/api/places/reverse", params={"lat": 26.46, "lng": 80.32})
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Kanpur, Uttar Pradesh"
+
+
+def test_places_reverse_degrades_on_geocoder_failure(monkeypatch):
+    monkeypatch.setattr(main, "_reverse_geocode", lambda lat, lng: (_ for _ in ()).throw(RuntimeError("down")))
+    monkeypatch.setattr(firestore_client, "log_telemetry", lambda e: "t")
+    resp = client.get("/api/places/reverse", params={"lat": 26.46, "lng": 80.32})
+    assert resp.status_code == 200  # never a 500
+    assert resp.json()["name"] is None
+
+
 # --- build_context ---------------------------------------------------------------
 
 def test_build_context_carries_soil_and_growth_stage(monkeypatch):

@@ -113,6 +113,14 @@
     );
   }
 
+  function reversePlace(lat, lng) {
+    return requestJson(
+      "/api/places/reverse?lat=" + encodeURIComponent(lat) + "&lng=" + encodeURIComponent(lng),
+      { method: "GET" },
+      10000
+    );
+  }
+
   // Best-effort telemetry (e.g. the silent geolocation fallback). Never rejects
   // to the caller -- a logging failure must not disrupt the farmer's flow.
   function logTelemetry(payload) {
@@ -227,6 +235,7 @@
     getCrops: getCrops,
     getReminders: getReminders,
     searchPlaces: searchPlaces,
+    reversePlace: reversePlace,
     logTelemetry: logTelemetry,
     diagnose: diagnose,
     recommend: recommend,

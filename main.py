@@ -447,6 +447,49 @@ def search_places(q: str = ""):
         return {"places": []}
 
 
+NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
+
+
+def _reverse_geocode(lat: float, lng: float) -> Optional[str]:
+    """Look up a human-readable place name for a coordinate via Nominatim's
+    reverse geocoder. Returns None if nothing usable comes back."""
+    params = urllib.parse.urlencode(
+        {"lat": lat, "lon": lng, "format": "jsonv2", "addressdetails": 1, "zoom": 12}
+    )
+    req = urllib.request.Request(
+        f"{NOMINATIM_REVERSE_URL}?{params}",
+        headers={"User-Agent": "KisanMate/1.0 (agriculture assistant demo)"},
+    )
+    with urllib.request.urlopen(req, timeout=6) as resp:
+        item = json.load(resp)
+
+    addr = item.get("address", {})
+    locality = (
+        addr.get("city")
+        or addr.get("town")
+        or addr.get("village")
+        or addr.get("suburb")
+        or addr.get("county")
+        or ""
+    )
+    region = addr.get("state") or addr.get("state_district") or ""
+    label = ", ".join(p for p in (locality, region) if p) or item.get("display_name")
+    return label or None
+
+
+@app.get("/api/places/reverse")
+def reverse_place(lat: float, lng: float):
+    """Reverse-geocode a device location so the picker's text field reflects
+    where the farmer actually is, instead of staying on the prefilled default.
+    Degrades silently to no name (never an error) so callers can just fall
+    back to keeping whatever text was already shown."""
+    try:
+        return {"name": _reverse_geocode(lat, lng)}
+    except Exception as exc:
+        _log_event("place_reverse_error", "location", str(exc))
+        return {"name": None}
+
+
 @app.get("/api/reminders/{farmer_id}")
 def get_reminders(farmer_id: str):
     """Cycle-based reminders for the farmer, computed deterministically from each
@@ -464,6 +507,16 @@ def get_reminders(farmer_id: str):
     if farmer is None:
         raise HTTPException(status_code=404, detail="farmer not found")
 
+    # A live 7-day rain outlook upgrades the irrigation reminder to a dry-spell
+    # alert; if the forecast is unavailable, dry_spell stays False and reminders
+    # fall back to the existing cadence-only behavior -- silently, per layer 3.
+    try:
+        dry_spell = weather_source.get_forecast(farmer.location.lat, farmer.location.lng).dry_spell
+        _log_event("reminders_weather", "weather", f"dry_spell={dry_spell}", fallback_used=False)
+    except Exception as exc:
+        _log_event("reminders_weather", "weather", str(exc), fallback_used=True)
+        dry_spell = False
+
     # Cache crop lookups within this request (a farmer may grow the same crop
     # more than once, and get_crop is a Firestore read).
     crop_cache: dict = {}
@@ -477,7 +530,7 @@ def get_reminders(farmer_id: str):
                 crop_cache[crop_id] = None
         return crop_cache[crop_id]
 
-    reminders = reminders_for_farmer(farmer, crop_lookup)
+    reminders = reminders_for_farmer(farmer, crop_lookup, dry_spell=dry_spell)
     return {"farmer_id": farmer_id, "reminders": reminders}
 
 

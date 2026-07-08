@@ -80,6 +80,23 @@ def test_no_reminders_without_crop_doc():
     assert reminders_for_crop(None, _planted(60)) == []
 
 
+def test_dry_spell_pulls_irrigation_to_today_with_message():
+    # Freshly planted -> cadence would put irrigation 5 days out, but a dry
+    # spell should override that and surface it today with a real message.
+    rems = reminders_for_crop(TOMATO, _planted(0), dry_spell=True)
+    irrigation = [r for r in rems if r["type"] == "irrigation"][0]
+    assert irrigation["days_until"] == 0
+    assert irrigation["dry_spell"] is True
+    assert "Tomato" in irrigation["message"] and "7 days" in irrigation["message"]
+
+
+def test_no_dry_spell_keeps_cadence_unchanged():
+    rems = reminders_for_crop(TOMATO, _planted(0), dry_spell=False)
+    irrigation = [r for r in rems if r["type"] == "irrigation"][0]
+    assert irrigation["days_until"] == 5
+    assert "dry_spell" not in irrigation and "message" not in irrigation
+
+
 def test_reminders_for_farmer_sorts_and_uses_lookup():
     farmer = Farmer(
         id="ramesh", name="Ramesh", phone="9876500001", lang="en",
@@ -115,3 +132,57 @@ def test_reminders_endpoint_returns_due_today(monkeypatch):
 def test_reminders_endpoint_404_for_unknown_farmer(monkeypatch):
     monkeypatch.setattr(firestore_client, "get_farmer", lambda fid: None)
     assert client.get("/api/reminders/nobody").status_code == 404
+
+
+def test_reminders_endpoint_surfaces_dry_spell_alert(monkeypatch):
+    """A dry 7-day forecast upgrades the irrigation reminder with a real message."""
+    from models import Forecast
+
+    monkeypatch.setattr(firestore_client, "get_farmer", lambda fid: _seeded_farmer())
+    monkeypatch.setattr(firestore_client, "get_crop", lambda cid: TOMATO)
+    monkeypatch.setattr(
+        main.weather_source, "get_forecast",
+        lambda lat, lng: Forecast(precip_next7_mm=1.0, rain_prob_max_pct=10.0, dry_spell=True, source="live"),
+    )
+    reminders = client.get("/api/reminders/ramesh").json()["reminders"]
+    irrigation = [r for r in reminders if r["type"] == "irrigation"][0]
+    assert irrigation["dry_spell"] is True and "irrigate" in irrigation["message"].lower()
+
+
+def test_reminders_endpoint_no_alert_when_rain_coming(monkeypatch):
+    """A wet 7-day forecast leaves the cadence-only reminder untouched."""
+    from models import Forecast
+
+    monkeypatch.setattr(firestore_client, "get_farmer", lambda fid: _seeded_farmer())
+    monkeypatch.setattr(firestore_client, "get_crop", lambda cid: TOMATO)
+    monkeypatch.setattr(
+        main.weather_source, "get_forecast",
+        lambda lat, lng: Forecast(precip_next7_mm=40.0, rain_prob_max_pct=80.0, dry_spell=False, source="live"),
+    )
+    reminders = client.get("/api/reminders/ramesh").json()["reminders"]
+    irrigation = [r for r in reminders if r["type"] == "irrigation"][0]
+    assert "dry_spell" not in irrigation
+
+
+def test_reminders_endpoint_forecast_failure_falls_back_silently(monkeypatch):
+    """Forecast fetch failure -> no error to the farmer, seeded cadence behavior,
+    and a logged fallback (PROJECT_SPEC.md layer 3)."""
+    telemetry: list = []
+    monkeypatch.setattr(firestore_client, "get_farmer", lambda fid: _seeded_farmer())
+    monkeypatch.setattr(firestore_client, "get_crop", lambda cid: TOMATO)
+    monkeypatch.setattr(firestore_client, "log_telemetry", lambda e: telemetry.append(e) or "t")
+    monkeypatch.setattr(
+        main.weather_source, "get_forecast",
+        lambda *a, **k: (_ for _ in ()).throw(main.weather_source.WeatherError("timeout")),
+    )
+
+    resp = client.get("/api/reminders/ramesh")
+    assert resp.status_code == 200
+    reminders = resp.json()["reminders"]
+    irrigation = [r for r in reminders if r["type"] == "irrigation"][0]
+    assert "dry_spell" not in irrigation  # unchanged seeded/cadence behavior
+
+    weather_events = [t for t in telemetry if t.event == "reminders_weather"]
+    assert len(weather_events) == 1
+    assert weather_events[0].layer == "weather"
+    assert weather_events[0].fallback_used is True

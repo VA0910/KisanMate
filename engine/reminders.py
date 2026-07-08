@@ -54,8 +54,17 @@ def _next_irrigation_day(day: int, cadence: int) -> int:
     return day if rem == 0 else day + (cadence - rem)
 
 
-def reminders_for_crop(crop, planting_date, today: Optional[date] = None) -> list[dict]:
-    """Compute the due/upcoming reminders for a single planted crop."""
+def reminders_for_crop(
+    crop, planting_date, today: Optional[date] = None, dry_spell: bool = False
+) -> list[dict]:
+    """Compute the due/upcoming reminders for a single planted crop.
+
+    `dry_spell` (from a live 7-day rain outlook, weather.get_forecast) pulls the
+    irrigation reminder forward to today with a real message, regardless of the
+    cadence schedule -- a farmer shouldn't wait out the cadence while the field
+    dries out. Defaults to False, which keeps the cadence-only behavior below
+    unchanged, so a failed/unavailable forecast degrades silently.
+    """
     today = today or date.today()
     day = days_since_planting(planting_date, today)
     if day is None or crop is None:
@@ -74,14 +83,23 @@ def reminders_for_crop(crop, planting_date, today: Optional[date] = None) -> lis
     if not past_harvest:
         cadence = IRRIGATION_CADENCE_DAYS.get(water_need, DEFAULT_CADENCE_DAYS)
         next_day = _next_irrigation_day(day, cadence)
-        reminders.append({
+        irrigation = {
             "type": "irrigation",
             "crop_id": crop_id,
             "crop_names": names,
             "due_date": (planted + timedelta(days=next_day)).isoformat(),
             "days_until": next_day - day,
             "water_need": water_need,
-        })
+        }
+        if dry_spell:
+            crop_name = names.get("en") or crop_id or "crop"
+            irrigation["due_date"] = today.isoformat()
+            irrigation["days_until"] = 0
+            irrigation["dry_spell"] = True
+            irrigation["message"] = (
+                f"No significant rain expected for 7 days — irrigate your {crop_name}."
+            )
+        reminders.append(irrigation)
 
     # --- current stage's care note (just after entering the stage) ---------------
     stage = compute_stage(planting_date, cycle_days, getattr(crop, "growth_stages", []), today)
@@ -113,17 +131,21 @@ def reminders_for_crop(crop, planting_date, today: Optional[date] = None) -> lis
     return reminders
 
 
-def reminders_for_farmer(farmer, crop_lookup: Callable, today: Optional[date] = None) -> list[dict]:
+def reminders_for_farmer(
+    farmer, crop_lookup: Callable, today: Optional[date] = None, dry_spell: bool = False
+) -> list[dict]:
     """All due/upcoming reminders for a farmer, soonest first (capped).
 
     `crop_lookup(crop_id)` returns the crop DB doc (or None). Injected so this
-    stays pure and unit-testable without Firestore.
+    stays pure and unit-testable without Firestore. `dry_spell` is likewise
+    injected (computed by the caller from a live forecast) so this stays a pure
+    function of its arguments -- no network access here.
     """
     today = today or date.today()
     out: list[dict] = []
     for cc in getattr(farmer, "current_crops", []) or []:
         crop = crop_lookup(cc.crop_id)
-        out.extend(reminders_for_crop(crop, cc.planting_date, today))
+        out.extend(reminders_for_crop(crop, cc.planting_date, today, dry_spell=dry_spell))
 
     # Soonest (and overdue) first; stable so same-day reminders keep insertion order.
     out.sort(key=lambda r: r["days_until"])

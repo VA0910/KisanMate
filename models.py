@@ -60,6 +60,16 @@ class Weather(BaseModel):
     source: Literal["live", "cache", "zone_normal"]
 
 
+class Forecast(BaseModel):
+    """7-day rain outlook, used only for the irrigation dry-spell reminder
+    (engine.reminders) -- separate from Weather above, which feeds the
+    diagnosis prior and only looks at current/past conditions."""
+    precip_next7_mm: float
+    rain_prob_max_pct: float
+    dry_spell: bool
+    source: Literal["live"]
+
+
 class Soil(BaseModel):
     nitrogen: Literal["low", "adequate", "unknown"]
     source: Literal["card", "cache", "unknown"]

@@ -270,6 +270,7 @@
   }
 
   var REMINDER_EMOJI = { irrigation: "💧", stage_care: "🌱", harvest: "🌾" };
+  var DRY_SPELL_EMOJI = "☀️";
 
   function reminderCropName(rem) {
     var names = rem.crop_names || {};
@@ -280,6 +281,7 @@
     var crop = reminderCropName(rem);
     var n = rem.days_until;
     if (rem.type === "irrigation") {
+      if (rem.dry_spell) return t("reminderIrrigateDrySpell")(crop);
       return n <= 0 ? t("reminderIrrigateToday")(crop) : t("reminderIrrigateIn")(crop, n);
     }
     if (rem.type === "harvest") {
@@ -307,7 +309,7 @@
       var emoji = document.createElement("span");
       emoji.className = "reminder-emoji";
       emoji.setAttribute("aria-hidden", "true");
-      emoji.textContent = REMINDER_EMOJI[rem.type] || "🔔";
+      emoji.textContent = (rem.type === "irrigation" && rem.dry_spell) ? DRY_SPELL_EMOJI : (REMINDER_EMOJI[rem.type] || "🔔");
       li.appendChild(emoji);
 
       var text = document.createElement("span");
@@ -1308,7 +1310,10 @@
   }
 
   // Device geolocation with the spec's silent, logged district fallback.
-  function detectGeolocation(statusEl, location, onDone) {
+  // `inputEl` is the visible place text field; it must be updated too, otherwise
+  // it keeps showing whatever district name (e.g. the "Guntur" default) was
+  // there before the farmer's real coordinates were picked up.
+  function detectGeolocation(statusEl, location, inputEl, onDone) {
     statusEl.textContent = t("locationDetecting");
     function fallback(reason) {
       window.KM_API.logTelemetry({
@@ -1326,7 +1331,17 @@
         location.lat = pos.coords.latitude;
         location.lng = pos.coords.longitude;
         statusEl.textContent = t("locationDeviceSet");
-        onDone(true);
+        window.KM_API.reversePlace(location.lat, location.lng)
+          .then(function (data) {
+            var name = data && data.name;
+            if (name) {
+              location.mandal = name;
+              inputEl.value = name;
+              statusEl.textContent = t("locationDistrictSet")(name);
+            }
+          })
+          .catch(function () { /* keep the coords; the name is best-effort */ })
+          .finally(function () { onDone(true); });
       },
       function (err) { fallback((err && err.message) || "denied"); },
       { timeout: 8000, maximumAge: 60000 }
@@ -1364,7 +1379,7 @@
     showSetupStep(0);
     showScreen("profile-setup");
     // Try the device location immediately; silently falls back to the picker.
-    detectGeolocation($("setup-location-status"), setupState.location, function () {});
+    detectGeolocation($("setup-location-status"), setupState.location, $("setup-place-input"), function () {});
   }
 
   function showSetupStep(index) {
@@ -1379,7 +1394,7 @@
 
   function wireSetup() {
     $("setup-use-location-btn").addEventListener("click", function () {
-      detectGeolocation($("setup-location-status"), setupState.location, function () {});
+      detectGeolocation($("setup-location-status"), setupState.location, $("setup-place-input"), function () {});
     });
     attachPlaceSearch(
       $("setup-place-input"), $("setup-place-suggestions"),
@@ -1499,7 +1514,7 @@
     $("open-profile-btn").addEventListener("click", openProfilePage);
 
     $("profile-use-location-btn").addEventListener("click", function () {
-      detectGeolocation($("profile-location-status"), profileEdit.location, function () {});
+      detectGeolocation($("profile-location-status"), profileEdit.location, $("profile-place-input"), function () {});
     });
     attachPlaceSearch(
       $("profile-place-input"), $("profile-place-suggestions"),
