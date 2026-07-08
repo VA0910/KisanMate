@@ -19,19 +19,19 @@ It runs as **one FastAPI app** that serves both a plain HTML/CSS/JS frontend (no
   </tr>
 </table>
 
-<table>
-  <tr>
-    <td align="center" width="50%"><img src="docs/screenshots/reports.png" width="380"><br><sub><b>Your reports — AI diagnoses vs. officer-confirmed</b></sub></td>
-    <td align="center" width="50%"><img src="docs/screenshots/officer-review.png" width="300"><br><sub><b>Farmer notified when an officer reviews the case</b></sub></td>
-  </tr>
-</table>
+
 
 ### 🧑‍🌾 RSK officer portal — the human-in-the-loop gate
 
 <p align="center"><img src="docs/screenshots/officer-portal.png" width="760"></p>
 
 The officer sees the AI's ranked candidates, confidence, and detected symptoms, and works two queues — cases the AI flagged for review, and results a farmer disputed. Their verdict is final and drives what the farmer sees (and any community alert).
-
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="docs/screenshots/reports.png" width="380"><br><sub><b>Your reports — AI diagnoses vs. officer-confirmed</b></sub></td>
+    <td align="center" width="50%"><img src="docs/screenshots/officer-review.png" width="300"><br><sub><b>Farmer notified when an officer reviews the case</b></sub></td>
+  </tr>
+</table>
 ---
 
 ## Highlights
