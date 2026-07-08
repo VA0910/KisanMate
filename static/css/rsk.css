@@ -245,3 +245,113 @@ h1, h2 { margin: 0; }
 }
 .toast[hidden] { display: none; }
 .toast.toast-error { background: var(--alert); color: #fff; }
+
+/* ---- officer login (separate from farmer auth) ---- */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.75rem;
+  text-align: center;
+}
+.login-emoji { font-size: 2.5rem; }
+.login-card h1 { font-size: 1.4rem; margin: 0.4rem 0 0.2rem; }
+.login-sub { color: var(--text-muted); margin: 0 0 1rem; }
+.demo-cred {
+  background: var(--watch-bg);
+  color: var(--watch);
+  border: 1px dashed var(--watch);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.95rem;
+}
+.demo-cred code { font-weight: 700; }
+.login-label { display: block; text-align: left; font-weight: 600; margin: 0.75rem 0 0.25rem; }
+.login-input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0.5rem 0.75rem;
+  font-size: 1.05rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+}
+.login-input:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.login-error { color: var(--alert); font-weight: 600; margin: 0.75rem 0 0; }
+.btn-wide { width: 100%; justify-content: center; margin-top: 1.1rem; }
+
+/* ---- case category tabs ---- */
+.tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  min-height: 44px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+}
+.tab[aria-selected="true"] {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+}
+.tab .pill-count {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 999px;
+  padding: 0 0.5rem;
+  min-width: 1.4rem;
+  text-align: center;
+}
+.tab[aria-selected="true"] .pill-count { background: rgba(255, 255, 255, 0.25); }
+
+/* ---- disputed status + note + photo + candidates ---- */
+.status-disputed { background: var(--alert-bg); color: var(--alert); }
+.status-confirmed { background: var(--ok-bg); color: var(--ok); }
+.dispute-note {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--alert-bg);
+  color: var(--alert);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.7rem;
+  margin: 0 0 0.7rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.case-photo {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  margin-bottom: 0.7rem;
+  background: var(--surface-alt);
+}
+.candidates { margin: 0.6rem 0; }
+.candidates-label { color: var(--text-muted); font-size: 0.85rem; }
+.candidate-list { list-style: none; margin: 0.3rem 0 0; padding: 0; display: grid; gap: 0.25rem; }
+.candidate {
+  font-size: 0.9rem;
+  padding: 0.3rem 0.55rem;
+  background: var(--surface-alt);
+  border-radius: 8px;
+}
+.candidate:first-child { font-weight: 700; }

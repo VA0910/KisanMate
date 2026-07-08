@@ -1,4 +1,6 @@
+import base64
 import json
+import os
 import random
 import urllib.parse
 import urllib.request
@@ -22,9 +24,11 @@ from engine.prior_table import CONTAGIOUS
 from explain import (
     ExplainError,
     RecommendExplainError,
+    combine_explanation,
     explain_fusion,
     explain_recommendations,
     recommendation_note,
+    template_explanation,
     template_message,
 )
 from models import (
@@ -55,12 +59,46 @@ def home():
 
 @app.get("/rsk")
 def rsk_dashboard():
-    """The RSK officer dashboard -- the human-in-the-loop confirmation gate.
+    """Legacy alias for the officer dashboard; the current portal lives at /admin."""
+    return FileResponse(STATIC_DIR / "admin.html")
 
-    A separate, denser static page from the farmer app (officers are literate
-    desk users), served from the same FastAPI app.
+
+@app.get("/admin")
+def admin_portal():
+    """The RSK officer portal -- a SEPARATE, denser desk app behind its own login
+    (not the farmer's phone/OTP). The human-in-the-loop confirmation gate.
     """
-    return FileResponse(STATIC_DIR / "rsk.html")
+    return FileResponse(STATIC_DIR / "admin.html")
+
+
+# Demo officer credentials (PROJECT_SPEC.md): shown on the login page so a judge
+# can sign in. Overridable via env; real authentication is the production step.
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "officer")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "rsk2024")
+
+
+class AdminLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.get("/api/admin/demo-credentials")
+def admin_demo_credentials():
+    """The demo credentials to display on the login page (like the demo OTP)."""
+    return {"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}
+
+
+@app.post("/api/admin/login")
+def admin_login(request: AdminLoginRequest):
+    """Validate the officer's demo credentials and return a session token.
+
+    Prototype auth: a fixed demo credential compared server-side. The officer
+    session is kept separate from the farmer session; real admin auth (SSO /
+    hashed credentials / RBAC) is the named production step.
+    """
+    if request.username == ADMIN_USERNAME and request.password == ADMIN_PASSWORD:
+        return {"ok": True, "token": "officer-demo-session"}
+    raise HTTPException(status_code=401, detail="incorrect username or password")
 
 
 class ConfirmRequest(BaseModel):
@@ -200,6 +238,10 @@ def build_context(farmer: Farmer, crop_doc=None) -> FusionContext:
         nearby_confirmed=[],
         growth_stage=stage["name"] if stage else None,
         crop_day=stage["day"] if stage else None,
+        # Season derived from today's date; susceptible_diseases filled in by the
+        # diagnose flow once the diagnosed crop is known.
+        season=current_season(),
+        susceptible_diseases=list(crop_doc.susceptible_diseases) if crop_doc is not None else [],
     )
 
 
@@ -444,6 +486,67 @@ def post_telemetry(entry: TelemetryIn):
     return {"ok": True}
 
 
+def _farmer_crop_ids(farmer: Farmer) -> set[str]:
+    ids = {c.crop_id.strip().lower() for c in (farmer.current_crops or []) if c.crop_id}
+    if farmer.crop:
+        ids.add(farmer.crop.strip().lower())
+    return ids
+
+
+def _resolve_diagnosed_crop(vision: "VisionOutput", farmer: Farmer, context: FusionContext) -> None:
+    """Identify the plant and point the diagnosis at the right crop profile.
+
+    Sets `vision.matches_profile` authoritatively (never trusting the model to
+    know the farmer's crops) and, when the photo is a plant the farmer doesn't
+    grow, repoints `context.crop`/`susceptible_diseases` at the identified plant's
+    profile from the crops DB (or leaves them general if it isn't in the DB).
+    Unidentifiable plants are left for the fusion decision to escalate.
+    """
+    identified = (vision.identified_crop or "").strip().lower()
+    if not identified or identified == "unidentifiable":
+        vision.matches_profile = False
+        return
+
+    farmer_crops = _farmer_crop_ids(farmer)
+    matches = identified in farmer_crops
+    vision.matches_profile = matches
+    if matches:
+        return  # keep the profile-built context (farmer's own crop)
+
+    # A different plant: diagnose using its own profile from the crops DB.
+    context.crop = identified
+    try:
+        crop_doc = firestore_client.get_crop(identified)
+    except Exception as exc:
+        _log_event("diagnose_crop_lookup_fallback", "context_data", str(exc), fallback_used=True)
+        crop_doc = None
+    context.susceptible_diseases = list(crop_doc.susceptible_diseases) if crop_doc is not None else []
+
+
+# Cap on the stored photo so a case doc stays well under Firestore's 1MB limit.
+# The frontend downscales before upload, so real photos land far below this.
+_MAX_STORED_IMAGE_BYTES = 700_000
+
+
+def _encode_image(image_bytes: bytes, content_type: Optional[str]) -> Optional[str]:
+    """Encode the photo as a data URL for the officer portal, or None if it's too
+    large to store safely (never fail the diagnosis over the photo)."""
+    if not image_bytes or len(image_bytes) > _MAX_STORED_IMAGE_BYTES:
+        return None
+    mime = content_type or "image/jpeg"
+    return f"data:{mime};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+
+
+def _top_visible_symptoms(vision: "Optional[VisionOutput]", condition: str) -> list:
+    """Visible symptoms for the fused top condition (fall back to the most
+    confident candidate), to ground the explanation's "why"."""
+    if vision is None or not vision.candidates:
+        return []
+    match = next((c for c in vision.candidates if c.condition == condition), None)
+    chosen = match or max(vision.candidates, key=lambda c: c.confidence)
+    return list(chosen.visible_symptoms)
+
+
 @app.post("/api/diagnose")
 async def diagnose(
     farmer_id: str = Form(...),
@@ -471,6 +574,7 @@ async def diagnose(
 
     try:
         image_bytes = await image.read()
+        image_data_url = _encode_image(image_bytes, image.content_type)
         context = build_context(farmer)
 
         vision_result = None
@@ -479,17 +583,29 @@ async def diagnose(
         except VisionError as exc:
             _log_fallback("vision_fallback", str(exc))
 
+        # Plant identification first: figure out which plant the photo shows, set
+        # matches_profile authoritatively, and diagnose against that plant's crop
+        # profile -- the farmer's crop if it matches, else the identified plant
+        # (PROJECT_SPEC.md "plant identification & multi-crop").
+        if vision_result is not None:
+            _resolve_diagnosed_crop(vision_result, farmer, context)
+
         fusion_result = fuse(vision_result, context)
 
+        visible_symptoms = _top_visible_symptoms(vision_result, fusion_result.top)
         try:
-            message = explain_fusion(fusion_result, farmer.lang, context)
+            explanation = explain_fusion(fusion_result, farmer.lang, context, visible_symptoms)
         except ExplainError as exc:
             _log_fallback("explain_fallback", str(exc))
-            message = template_message(fusion_result.decision, farmer.lang, context)
+            explanation = template_explanation(fusion_result.decision, farmer.lang)
+        # Combined string kept for text-to-speech; `explanation` is the structured
+        # what/why/what-to-do the UI renders in separate blocks.
+        message = combine_explanation(explanation)
 
         case = Case(
             farmer_id=farmer_id,
             image_note=image_note,
+            image_data=image_data_url,
             vision=vision_result,
             context=context,
             fusion=fusion_result,
@@ -502,7 +618,12 @@ async def diagnose(
         )
         case_id = firestore_client.create_case(case)
 
-        return {"case_id": case_id, "fusion": fusion_result.model_dump(), "message": message}
+        return {
+            "case_id": case_id,
+            "fusion": fusion_result.model_dump(),
+            "explanation": explanation,
+            "message": message,
+        }
 
     except HTTPException:
         raise
@@ -541,6 +662,7 @@ def _case_row(case: Case, farmers_by_id: dict[str, Farmer]) -> dict:
         "mandal": farmer.location.mandal if farmer else None,
         "location": {"lat": farmer.location.lat, "lng": farmer.location.lng} if farmer else None,
         "image_note": case.image_note,
+        "photo": case.image_data,
         "status": case.status,
         "ai_top_condition": top,
         "ai_confidence": case.fusion.confidence if case.fusion else None,
@@ -554,9 +676,13 @@ def _case_row(case: Case, farmers_by_id: dict[str, Farmer]) -> dict:
 
 @app.get("/api/cases")
 def list_cases():
-    """The RSK officer's review queue: every case still awaiting a human verdict."""
+    """The RSK officer's review queue: cases awaiting a human verdict.
+
+    Two categories the portal separates on `status` (PROJECT_SPEC.md):
+    "escalated" -> "AI needs review"; "disputed" -> "Farmer disputed".
+    """
     try:
-        cases = firestore_client.list_cases_by_status(["pending", "escalated"])
+        cases = firestore_client.list_cases_by_status(["pending", "escalated", "disputed"])
         farmers_by_id = {f.id: f for f in firestore_client.list_farmers()}
     except Exception as exc:
         # Surface a real load failure instead of a false-empty queue: an officer
@@ -565,6 +691,33 @@ def list_cases():
         _log_event("cases_list_error", "api", str(exc))
         raise HTTPException(status_code=503, detail="cases temporarily unavailable")
     return {"cases": [_case_row(case, farmers_by_id) for case in cases]}
+
+
+@app.post("/api/cases/{case_id}/dispute")
+def dispute_case(case_id: str):
+    """Farmer taps "This isn't right": mark the case DISPUTED so it lands in the
+    officer portal's "Farmer disputed" category.
+
+    This is NOT an officer verdict: it sets no `officer_verdict` and triggers NO
+    community-alert propagation (PROJECT_SPEC.md). Only an officer Confirm/Override
+    is authoritative.
+    """
+    try:
+        case = firestore_client.get_case(case_id)
+    except Exception as exc:
+        _log_event("dispute_lookup_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="case store temporarily unavailable")
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+
+    try:
+        firestore_client.update_case(case_id, {"status": "disputed"})
+    except Exception as exc:
+        _log_event("dispute_write_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="could not record your feedback; please retry")
+
+    _log_event("farmer_disputed", "human_override", f"case {case_id}")
+    return {"case_id": case_id, "status": "disputed"}
 
 
 @app.post("/api/confirm")

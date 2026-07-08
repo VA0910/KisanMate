@@ -44,12 +44,16 @@ def fuse(vision: Optional[VisionOutput], context: FusionContext) -> FusionOutput
     prior = compute_prior(context)
     prior_top: Condition = max(prior, key=prior.get)
 
+    # The plant being unidentifiable is treated like a poor image: we can't
+    # responsibly diagnose a plant we can't recognise, so escalate (PROJECT_SPEC.md).
+    unidentifiable = vision is not None and vision.identified_crop == "unidentifiable"
+
     if vision is None:
         image_quality = "poor"
         vision_confidence: dict[str, float] = {}
         vision_top = "unknown"
     else:
-        image_quality = vision.image_quality
+        image_quality = "poor" if unidentifiable else vision.image_quality
         vision_confidence = {c.condition: c.confidence for c in vision.candidates}
         vision_top = (
             max(vision.candidates, key=lambda c: c.confidence).condition

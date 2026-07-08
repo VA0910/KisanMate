@@ -364,13 +364,30 @@
       <div id="diagnose-capture">
         <p data-i18n="diagnoseInstruction">Take or choose a clear photo of the leaf</p>
 
-        <div class="file-btn-wrap">
+        <div id="capture-choices" class="capture-choices">
+          <button type="button" id="open-camera-btn" class="file-btn">
+            <svg class="icon" aria-hidden="true"><use href="#icon-camera"></use></svg>
+            <span data-i18n="takePhoto">Take photo</span>
+          </button>
           <input type="file" id="photo-input" accept="image/*" class="visually-hidden-input">
           <label for="photo-input" class="file-btn">
-            <svg class="icon" aria-hidden="true"><use href="#icon-camera"></use></svg>
-            <span data-i18n="addPhoto">Add Photo</span>
+            <svg class="icon" aria-hidden="true"><use href="#icon-sprout"></use></svg>
+            <span data-i18n="uploadPhoto">Upload</span>
           </label>
         </div>
+
+        <div id="camera-view" class="camera-view" hidden>
+          <video id="camera-video" class="camera-video" autoplay playsinline muted
+                 data-i18n-aria="cameraLivePreview" aria-label="Live camera preview"></video>
+          <div class="camera-actions">
+            <button type="button" id="capture-photo-btn" class="btn btn-primary">
+              <svg class="icon" aria-hidden="true"><use href="#icon-camera"></use></svg>
+              <span data-i18n="capturePhoto">Capture</span>
+            </button>
+            <button type="button" id="cancel-camera-btn" class="btn btn-secondary" data-i18n="cancel">Cancel</button>
+          </div>
+        </div>
+        <canvas id="camera-canvas" hidden></canvas>
 
         <div id="photo-preview-wrap" hidden>
           <img id="photo-preview" alt="" data-i18n-alt="photoPreviewAlt" class="photo-preview">
@@ -399,7 +416,23 @@
           <span id="confidence-word" class="confidence-word"></span>
         </div>
 
-        <div class="advice-block">
+        <!-- Structured explanation: what / why / what-to-do, rendered cleanly -->
+        <div id="result-explanation">
+          <div class="explain-block" id="explain-what-block">
+            <span class="explain-label" data-i18n="explainWhat">What this is</span>
+            <p id="explain-what"></p>
+          </div>
+          <div class="explain-block" id="explain-why-block">
+            <span class="explain-label" data-i18n="explainWhy">Why</span>
+            <p id="explain-why"></p>
+          </div>
+          <div class="explain-block" id="explain-todo-block">
+            <span class="explain-label" data-i18n="explainWhatToDo">What to do</span>
+            <p id="explain-todo"></p>
+          </div>
+        </div>
+        <!-- Fallback single-paragraph advice (used when no structured explanation) -->
+        <div class="advice-block" id="advice-block-fallback" hidden>
           <span class="advice-label" data-i18n="adviceLabel">What to do</span>
           <p id="result-message"></p>
         </div>

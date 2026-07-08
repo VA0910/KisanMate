@@ -106,12 +106,16 @@ def page(base_url):
     except Exception as exc:  # pragma: no cover
         pytest.skip(f"Playwright runtime unavailable: {exc}")
     try:
-        browser = pw.chromium.launch()
+        # Fake media device so getUserMedia yields a test video stream in headless.
+        browser = pw.chromium.launch(
+            args=["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"]
+        )
     except Exception as exc:
         pw.stop()
         pytest.skip(f"Chromium not installed (run `playwright install chromium`): {exc}")
-    # No geolocation permission -> the setup wizard's silent district fallback fires.
-    context = browser.new_context()
+    # Grant camera (for the diagnose capture); NOT geolocation, so the setup
+    # wizard's silent district fallback still fires.
+    context = browser.new_context(permissions=["camera"])
     pg = context.new_page()
     try:
         yield pg
@@ -235,6 +239,72 @@ def test_reminder_shows_on_home_and_changes_with_planting_date(page, base_url):
     page.wait_for_selector("#reminders-card:not([hidden])")
     expect(page.locator("#reminders-card .reminder-badge")).to_have_count(0)
     expect(page.locator("#reminders-card")).to_contain_text("5")
+
+
+def test_diagnose_camera_capture_structured_and_dispute(page, base_url):
+    """Take a live photo with the (fake) camera, get a structured result, and
+    dispute it via the dispute path (not an officer verdict)."""
+    _sign_in(page, base_url, RAMESH_PHONE)
+    page.wait_for_selector("#screen-home:not([hidden])")
+    page.click("#go-diagnose-btn")
+    page.wait_for_selector("#screen-diagnose:not([hidden])")
+
+    # Live camera capture.
+    page.click("#open-camera-btn")
+    page.wait_for_selector("#camera-view:not([hidden])")
+    page.wait_for_function("() => { var v = document.getElementById('camera-video'); return v && v.videoWidth > 0; }")
+    page.click("#capture-photo-btn")
+    page.wait_for_selector("#photo-preview-wrap:not([hidden])")
+
+    with page.expect_response(lambda r: r.url.endswith("/api/diagnose")) as diag:
+        page.click("#submit-diagnose-btn")
+    case_id = diag.value.json().get("case_id")
+    page.wait_for_selector("#diagnose-result:not([hidden])", timeout=30000)
+
+    # Structured explanation renders in its own blocks (not the fallback paragraph).
+    page.wait_for_selector("#result-explanation:not([hidden])")
+    assert page.inner_text("#explain-todo").strip() != ""
+
+    # "This isn't right" must call the DISPUTE path (never /api/confirm).
+    page.once("dialog", lambda dialog: dialog.accept())
+    with page.expect_response(lambda r: "/dispute" in r.url and r.request.method == "POST") as disp:
+        page.click("#not-right-btn")
+    assert disp.value.status == 200
+    assert disp.value.json()["status"] == "disputed"
+    page.wait_for_selector("#dispute-thanks:not([hidden])")
+
+    # Clean up the single case this test created.
+    if case_id:
+        try:
+            firestore_client.get_client().collection("cases").document(case_id).delete()
+        except Exception:
+            pass
+
+
+def test_admin_login_shows_portal_with_both_tabs(page, base_url):
+    page.goto(base_url + "/admin")
+    page.wait_for_selector("#admin-login:not([hidden])")
+    assert page.is_hidden("#admin-portal")
+
+    # Demo credentials are shown on the login page (like the demo OTP).
+    page.wait_for_function("() => document.getElementById('demo-user').textContent.trim().length > 0")
+    page.fill("#admin-username", page.inner_text("#demo-user").strip())
+    page.fill("#admin-password", page.inner_text("#demo-pass").strip())
+    page.click("#admin-login-btn")
+
+    page.wait_for_selector("#admin-portal:not([hidden])")
+    assert page.is_visible("#tab-review") and page.is_visible("#tab-disputed")
+
+
+def test_farmer_session_cannot_open_admin_portal(page, base_url):
+    page.goto(base_url + "/admin")
+    # Simulate a signed-in FARMER (separate session key) and reload /admin.
+    page.evaluate(
+        "() => localStorage.setItem('kisanmate_session', JSON.stringify({farmer:{id:'ramesh'}}))"
+    )
+    page.reload()
+    page.wait_for_selector("#admin-login:not([hidden])")
+    assert page.is_hidden("#admin-portal")  # a farmer session never reveals the officer portal
 
 
 def test_profile_edit_soil_persists_across_reload(page, base_url):

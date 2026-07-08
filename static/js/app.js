@@ -177,6 +177,9 @@
   };
 
   function showScreen(name, skipHook) {
+    // Release the camera if we're leaving the diagnose screen with it still open.
+    if (name !== "diagnose" && state.cameraStream) stopCamera();
+
     Object.keys(SECTION_IDS).forEach(function (key) {
       var el = $(SECTION_IDS[key]);
       if (el) el.hidden = key !== name;
@@ -392,13 +395,12 @@
   function wireDiagnose() {
     $("photo-input").addEventListener("change", function (e) {
       var file = e.target.files && e.target.files[0];
-      if (!file) return;
-      state.diagnosePhotoFile = file;
-      $("photo-preview").src = URL.createObjectURL(file);
-      $("photo-preview-wrap").hidden = false;
-      $("submit-diagnose-btn").disabled = false;
+      if (file) setDiagnosePhoto(file);
     });
-    $("change-photo-btn").addEventListener("click", function () { $("photo-input").click(); });
+    $("open-camera-btn").addEventListener("click", openCamera);
+    $("capture-photo-btn").addEventListener("click", capturePhoto);
+    $("cancel-camera-btn").addEventListener("click", stopCamera);
+    $("change-photo-btn").addEventListener("click", resetDiagnoseScreen);
     $("submit-diagnose-btn").addEventListener("click", submitDiagnose);
     $("diagnose-retry-btn").addEventListener("click", submitDiagnose);
     $("new-photo-btn").addEventListener("click", resetDiagnoseScreen);
@@ -409,17 +411,85 @@
     if (!window.KM_SPEECH.ttsAvailable) $("play-audio-btn").hidden = true;
   }
 
+  function setDiagnosePhoto(file) {
+    state.diagnosePhotoFile = file;
+    $("photo-preview").src = URL.createObjectURL(file);
+    $("photo-preview-wrap").hidden = false;
+    $("capture-choices").hidden = true;
+    $("submit-diagnose-btn").disabled = false;
+  }
+
+  // ---- camera capture (getUserMedia) with silent fall back to upload ----------
+
+  function openCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      cameraUnavailable("unsupported");
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+      .then(function (stream) {
+        state.cameraStream = stream;
+        var video = $("camera-video");
+        video.srcObject = stream;
+        $("camera-view").hidden = false;
+        $("capture-choices").hidden = true;
+        $("photo-preview-wrap").hidden = true;
+        $("capture-photo-btn").focus();
+      })
+      .catch(function (err) { cameraUnavailable((err && err.name) || "denied"); });
+  }
+
+  // Silent fallback (never an error to the farmer): hide the camera option, keep
+  // upload, and log why (PROJECT_SPEC.md layer 3).
+  function cameraUnavailable(reason) {
+    stopCamera();
+    var btn = $("open-camera-btn");
+    if (btn) btn.hidden = true;
+    window.KM_API.logTelemetry({
+      event: "camera_fallback", layer: "diagnose",
+      detail: { reason: reason }, fallback_used: true
+    });
+  }
+
+  function stopCamera() {
+    if (state.cameraStream) {
+      state.cameraStream.getTracks().forEach(function (t) { t.stop(); });
+      state.cameraStream = null;
+    }
+    var video = $("camera-video");
+    if (video) video.srcObject = null;
+    $("camera-view").hidden = true;
+    if (!state.diagnosePhotoFile) $("capture-choices").hidden = false;
+  }
+
+  function capturePhoto() {
+    var video = $("camera-video");
+    var canvas = $("camera-canvas");
+    if (!video.videoWidth) return;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(function (blob) {
+      if (!blob) return;
+      var file = new File([blob], "capture.jpg", { type: "image/jpeg" });
+      stopCamera();
+      setDiagnosePhoto(file);
+    }, "image/jpeg", 0.9);
+  }
+
   function showDiagnoseSubState(name) {
     var map = { capture: "diagnose-capture", thinking: "diagnose-thinking", result: "diagnose-result", error: "diagnose-error" };
     Object.keys(map).forEach(function (k) { $(map[k]).hidden = k !== name; });
   }
 
   function resetDiagnoseScreen() {
+    stopCamera();
     state.diagnosePhotoFile = null;
     state.lastDiagnoseCaseId = null;
     state.lastDiagnoseMessage = "";
     $("photo-input").value = "";
     $("photo-preview-wrap").hidden = true;
+    $("capture-choices").hidden = false;
     $("submit-diagnose-btn").disabled = true;
     $("dispute-thanks").hidden = true;
     $("not-right-btn").hidden = false;
@@ -457,14 +527,16 @@
       conditionHeading.hidden = false;
       conditionHeading.textContent = d.conditions[fusion.top] || fusion.top;
 
+      // The confidence indicator is driven by DECISION, not the raw posterior
+      // number: "advise" always reads confident/high; "escalate_rsk" always reads
+      // uncertain -- so a confident result is never shown as unsure (and never
+      // paired with an officer message), per PROJECT_SPEC.md.
       confidenceBlock.hidden = false;
-      var filled = Math.round((fusion.confidence || 0) * 5);
+      var word = isAdvise ? t("confidenceHigh") : t("confidenceUncertain");
+      var filled = isAdvise ? 5 : 2;
       renderSegments($("confidence-segments"), filled, 5);
-      $("confidence-word").textContent = confidenceWord(fusion.confidence || 0);
-      $("confidence-segments").setAttribute(
-        "aria-label",
-        t("confidenceLabel") + ": " + confidenceWord(fusion.confidence || 0) + ", " + Math.round((fusion.confidence || 0) * 100) + "%"
-      );
+      $("confidence-word").textContent = word;
+      $("confidence-segments").setAttribute("aria-label", t("confidenceLabel") + ": " + word);
     } else {
       pillText.textContent = t("statusEscalate");
       setIconUse(pillIcon, "icon-alert-triangle");
@@ -473,7 +545,7 @@
       confidenceBlock.hidden = true;
     }
 
-    $("result-message").textContent = data.message || "";
+    renderExplanation(data);
     $("not-right-btn").hidden = !state.lastDiagnoseCaseId;
     $("dispute-thanks").hidden = true;
 
@@ -481,11 +553,38 @@
     if (!state.demoActive) window.KM_SPEECH.speak(data.message, localeTag());
   }
 
+  // Render the structured what / why / what-to-do in separate blocks; fall back
+  // to a single paragraph if the backend only returned a combined message.
+  function renderExplanation(data) {
+    var expl = data.explanation;
+    var structured = $("result-explanation");
+    var fallback = $("advice-block-fallback");
+    if (expl && (expl.what || expl.why || expl.what_to_do)) {
+      setExplainBlock("explain-what-block", "explain-what", expl.what);
+      setExplainBlock("explain-why-block", "explain-why", expl.why);
+      setExplainBlock("explain-todo-block", "explain-todo", expl.what_to_do);
+      structured.hidden = false;
+      fallback.hidden = true;
+    } else {
+      structured.hidden = true;
+      fallback.hidden = false;
+      $("result-message").textContent = data.message || "";
+    }
+  }
+
+  function setExplainBlock(blockId, textId, value) {
+    var text = (value || "").trim();
+    $(textId).textContent = text;
+    $(blockId).hidden = !text;
+  }
+
   function handleNotRight() {
     if (!state.lastDiagnoseCaseId) return;
     var confirmed = window.confirm(t("disputeConfirmQuestion"));
     if (!confirmed) return;
-    window.KM_API.confirm(state.lastDiagnoseCaseId, "farmer_disputed").catch(function () {});
+    // Dispute path: records status="disputed" for the officer's "Farmer disputed"
+    // queue. It is NOT an officer verdict and fires no alert (backend-enforced).
+    window.KM_API.dispute(state.lastDiagnoseCaseId).catch(function () {});
     $("dispute-thanks").hidden = false;
     $("dispute-thanks").textContent = t("disputeThanks");
     $("not-right-btn").hidden = true;

@@ -179,6 +179,15 @@
     );
   }
 
+  // Farmer dispute: NOT an officer verdict, never fires an alert (see backend).
+  function dispute(caseId) {
+    return requestJson(
+      "/api/cases/" + encodeURIComponent(caseId) + "/dispute",
+      { method: "POST" },
+      15000
+    );
+  }
+
   global.KM_API = {
     KMApiError: KMApiError,
     requestOtp: requestOtp,
@@ -193,6 +202,7 @@
     recommend: recommend,
     getAlerts: getAlerts,
     confirm: confirm,
+    dispute: dispute,
     demoRun: demoRun,
     demoReset: demoReset
   };

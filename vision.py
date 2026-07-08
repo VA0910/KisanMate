@@ -14,19 +14,21 @@ from pydantic import ValidationError
 from config import GEMINI_API_KEY, GEMINI_MODEL
 from models import VisionOutput
 
-VISION_PROMPT = """You are an agronomy vision assistant helping diagnose tomato crop
-photos taken by smallholder farmers in India.
+VISION_PROMPT = """You are an agronomy vision assistant helping diagnose crop photos
+taken by smallholder farmers in India.
 
-Look at the attached photo and assess it. Score every condition you can reasonably
-judge with its own confidence, not just the single most likely one, since a downstream
-system combines your scores with local weather and soil data. Base confidence only on
-what is visibly in the photo.
+FIRST, identify the plant/crop in the photo. THEN assess its condition. Score every
+condition you can reasonably judge with its own confidence, not just the single most
+likely one, since a downstream system combines your scores with local weather and soil
+data. Base everything only on what is visibly in the photo.
 
 Return ONLY JSON matching this shape, with no extra commentary:
 {
   "image_quality": "good" or "poor" (poor = blurry, too dark, too far away, or the
     plant/leaf is not clearly visible),
-  "crop_confirmed": the crop you see, e.g. "tomato", or "uncertain" if you cannot tell,
+  "identified_crop": the plant/crop you actually see (lowercase, e.g. "tomato", "rice",
+    "cotton", "wheat"); use "unidentifiable" if you genuinely cannot tell what plant it is,
+  "crop_confirmed": same as identified_crop, or "uncertain" if you cannot tell,
   "candidates": [
     {"condition": one of "late_blight", "early_blight", "nitrogen_deficiency", "other", "healthy",
      "confidence": a number from 0.0 to 1.0,

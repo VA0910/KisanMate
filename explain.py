@@ -37,7 +37,10 @@ def _stage_label(stage):
 
 
 def _context_facts(context):
-    """A compact dict of the farmer's field context for a Gemini prompt."""
+    """A compact dict of the farmer's field context for a Gemini prompt.
+
+    This is SUPPORTING information the model may weave into the "why" when
+    relevant -- it is never a mandatory prefix (see EXPLAIN_SYSTEM_INSTRUCTION)."""
     if context is None:
         return None
     facts = {}
@@ -50,34 +53,18 @@ def _context_facts(context):
         facts["growth_stage"] = _stage_label(context.growth_stage)
     if getattr(context, "crop_day", None) is not None:
         facts["days_since_planting"] = context.crop_day
+    if getattr(context, "season", None):
+        facts["season"] = context.season
+    weather = getattr(context, "weather", None)
+    if weather is not None:
+        facts["weather"] = {
+            "temp_c": weather.temp_c,
+            "humidity_pct": weather.humidity_pct,
+            "rain_48h_mm": weather.rain_48h_mm,
+        }
+    if getattr(context, "susceptible_diseases", None):
+        facts["crop_susceptible_diseases"] = context.susceptible_diseases
     return facts or None
-
-
-def personalize_prefix(context, language):
-    """A localized lead-in that names the farmer's soil and growth stage.
-
-    Used verbatim on the deterministic fallback path so a diagnosis still reads
-    "For your black soil at the flowering stage — ..." even when Gemini is down.
-    Returns "" when there's nothing profile-specific to say.
-    """
-    if context is None:
-        return ""
-    soil = _soil_label(getattr(getattr(context, "soil", None), "type", None), language)
-    stage = _stage_label(getattr(context, "growth_stage", None))
-    if not soil and not stage:
-        return ""
-    if language == "hi":
-        if soil and stage:
-            return f"आपकी {soil} मिट्टी के लिए, {stage} अवस्था में — "
-        return f"आपकी {soil} मिट्टी के लिए — " if soil else f"{stage} अवस्था में — "
-    if language == "te":
-        if soil and stage:
-            return f"మీ {soil} నేలకు, {stage} దశలో — "
-        return f"మీ {soil} నేలకు — " if soil else f"{stage} దశలో — "
-    # English (and default)
-    if soil and stage:
-        return f"For your {soil} soil at the {stage} stage — "
-    return f"For your {soil} soil — " if soil else f"At the {stage} stage — "
 
 
 def recommendation_note(context, language):
@@ -107,64 +94,102 @@ def recommendation_note(context, language):
     return note
 
 EXPLAIN_SYSTEM_INSTRUCTION = """You are KisanMate, a friendly farm assistant speaking to a
-smallholder farmer in India. You are given a crop diagnosis result that has ALREADY been
-decided by a separate rule-based system. Explain it warmly and simply -- do not diagnose
-anything yourself.
+smallholder farmer in India. You are given a crop diagnosis result ALREADY decided by a separate
+rule-based system. Explain it warmly and simply -- do not diagnose anything yourself, and never
+change the given condition, confidence, or decision.
+
+Return a STRUCTURED answer as JSON with three fields:
+- "what": what the condition is, in plain words (one or two short sentences).
+- "why": the reason, drawn from the visible symptoms and any field context that is actually relevant.
+- "what_to_do": the next step.
 
 Rules you must always follow:
-- Write only in the requested language, in short plain sentences that still make sense
-  when read aloud to someone with limited literacy.
-- Never invent or change the diagnosis, confidence, or decision -- only explain the one given to you.
-- If the decision is "escalate_rsk", say clearly and kindly that a local RSK (Raitha Saradhi
-  Kendra) officer should look at this before the farmer acts on it, and do not state a confident
-  diagnosis as if it were certain.
-- If you mention spraying or any pesticide/fungicide as a next step, you must:
-  (a) tell the farmer to check the weather first (do not spray before rain or in high wind), and
-  (b) tell them to confirm the exact product and dosage with the RSK officer or an agriculture
-      extension worker.
-- Never state a specific chemical name, brand, or dosage/quantity yourself.
-- You are given the farmer's field context (crop, soil type, current growth stage). Refer to it
-  naturally in your answer -- for example, "for your black soil at the flowering stage..." -- so the
-  advice feels personal. Do not list the context mechanically, and do not invent context you weren't given.
-- Keep the whole message under 80 words.
+- Write only in the requested language, in short plain sentences that read aloud well to someone with
+  limited literacy. Keep the three fields together under 80 words.
+- If the decision is "advise" (the system is CONFIDENT): give direct, confident advice. Do NOT mention
+  any RSK officer, and do NOT use "we're not sure" / hedging language.
+- If the decision is "escalate_rsk" (the system is UNSURE): say kindly that a local RSK (Raitha Saradhi
+  Kendra) officer will take a closer look before the farmer acts, and do not state the diagnosis as if certain.
+- Weave the farmer's field context into the WHY naturally, and ONLY when it is actually relevant to this
+  condition (for example, mention soil for a nutrient deficiency). NEVER begin the message with
+  "For your <soil> soil" or any mechanical list of context. Use only the real soil/context you are given;
+  never invent, mismatch, or change it.
+- If you mention spraying a pesticide/fungicide: tell the farmer to check the weather first (not before
+  rain or in high wind) and to confirm the exact product and dose with an agriculture extension worker.
+  Never state a specific chemical name, brand, or dose yourself.
 """
 
-# Deterministic fallback templates (layer 1), used only if the Gemini call above fails.
-_TEMPLATES = {
+# Deterministic fallback templates (layer 1), used only if the Gemini call fails.
+# Structured into what / why / what_to_do so the UI can render them cleanly.
+# "advise" is the CONFIDENT path: no RSK officer mention, no hedging.
+_TEMPLATE_PARTS = {
     "en": {
-        "advise": (
-            "Your crop check is done. Please follow the suggested care steps. "
-            "If you plan to spray anything, check the weather first and confirm "
-            "the product and amount with your local RSK officer."
-        ),
-        "escalate_rsk": (
-            "We are not fully sure about this case yet. Please show this photo to "
-            "your local RSK officer so they can confirm it and guide your next step."
-        ),
+        "advise": {
+            "what": "We checked your crop and the result looks clear.",
+            "why": "This is based on the signs seen in your photo.",
+            "what_to_do": (
+                "Follow the care steps for this condition. If you plan to spray, check the "
+                "weather first and use the right product and dose for it."
+            ),
+        },
+        "escalate_rsk": {
+            "what": "This case needs a closer look.",
+            "why": "We are not fully sure from the photo alone.",
+            "what_to_do": (
+                "We've sent this photo to your local RSK officer, who will confirm it and "
+                "guide your next step."
+            ),
+        },
     },
     "hi": {
-        "advise": (
-            "आपकी फ़सल की जांच पूरी हो गई है। बताए गए उपाय अपनाएं। "
-            "अगर आप कोई दवा छिड़कने वाले हैं, तो पहले मौसम देखें और मात्रा "
-            "अपने नज़दीकी RSK अधिकारी से पुष्टि करें।"
-        ),
-        "escalate_rsk": (
-            "अभी हमें इस मामले में पूरा भरोसा नहीं है। कृपया यह फोटो अपने "
-            "नज़दीकी RSK अधिकारी को दिखाएं ताकि वे पुष्टि कर सकें और सही सलाह दे सकें।"
-        ),
+        "advise": {
+            "what": "हमने आपकी फ़सल की जांच की और नतीजा साफ़ है।",
+            "why": "यह आपकी फोटो में दिखे लक्षणों पर आधारित है।",
+            "what_to_do": (
+                "इस समस्या के लिए बताए गए उपाय अपनाएं। अगर दवा छिड़कनी हो तो पहले मौसम देखें और "
+                "सही दवा व सही मात्रा का उपयोग करें।"
+            ),
+        },
+        "escalate_rsk": {
+            "what": "इस मामले में और जांच ज़रूरी है।",
+            "why": "अकेले फोटो से हमें पूरा भरोसा नहीं है।",
+            "what_to_do": (
+                "हमने यह फोटो आपके नज़दीकी RSK अधिकारी को भेज दिया है, जो इसकी पुष्टि करके सही सलाह देंगे।"
+            ),
+        },
     },
     "te": {
-        "advise": (
-            "మీ పంట పరిశీలన పూర్తయింది. సూచించిన జాగ్రత్తలు పాటించండి. "
-            "మందు పిచికారీ చేయాలనుకుంటే, ముందు వాతావరణం చూసి, మోతాదు గురించి "
-            "మీ సమీప RSK అధికారిని సంప్రదించండి."
-        ),
-        "escalate_rsk": (
-            "ఈ విషయంలో మాకు ఇంకా పూర్తి నమ్మకం లేదు. దయచేసి ఈ ఫోటోను మీ సమీప "
-            "RSK అధికారికి చూపించి నిర్ధారణ, సరైన సలహా పొందండి."
-        ),
+        "advise": {
+            "what": "మేము మీ పంటను పరిశీలించాం, ఫలితం స్పష్టంగా ఉంది.",
+            "why": "ఇది మీ ఫోటోలో కనిపించిన లక్షణాల ఆధారంగా ఉంది.",
+            "what_to_do": (
+                "ఈ సమస్యకు సూచించిన జాగ్రత్తలు పాటించండి. మందు పిచికారీ చేయాలంటే ముందు వాతావరణం చూసి, "
+                "సరైన మందు, సరైన మోతాదు వాడండి."
+            ),
+        },
+        "escalate_rsk": {
+            "what": "ఈ విషయంలో మరింత పరిశీలన అవసరం.",
+            "why": "ఫోటో మాత్రమే చూసి మాకు పూర్తి నమ్మకం లేదు.",
+            "what_to_do": (
+                "ఈ ఫోటోను మీ సమీప RSK అధికారికి పంపాము; వారు దీన్ని నిర్ధారించి సరైన సలహా ఇస్తారు."
+            ),
+        },
     },
 }
+
+
+def combine_explanation(explanation: dict) -> str:
+    """Flatten a structured explanation into one string (for text-to-speech)."""
+    if not explanation:
+        return ""
+    parts = [explanation.get("what"), explanation.get("why"), explanation.get("what_to_do")]
+    return " ".join(p.strip() for p in parts if p and p.strip())
+
+
+def template_explanation(decision: str, language: str) -> dict:
+    """Deterministic structured fallback ({what, why, what_to_do}); never calls Gemini."""
+    by_lang = _TEMPLATE_PARTS.get(language, _TEMPLATE_PARTS["en"])
+    return dict(by_lang.get(decision, by_lang["escalate_rsk"]))
 
 
 class ExplainError(Exception):
@@ -244,32 +269,43 @@ def explain_recommendations(
 
 
 def template_message(decision: str, language: str, context=None) -> str:
-    """Deterministic per-language fallback message; never calls Gemini.
+    """Deterministic per-language fallback message (a single combined string).
 
-    When a fusion context is supplied, the message is prefixed with a localized
-    lead-in that names the farmer's soil and growth stage, so even this offline
-    path is personalized ("For your black soil at the flowering stage — ...").
+    Confident for "advise" (no officer mention), escalation for "escalate_rsk".
+    Never prefixed with soil/stage. `context` is accepted for a stable signature
+    but intentionally unused. Used for text-to-speech and the last-resort paths.
     """
-    templates = _TEMPLATES.get(language, _TEMPLATES["en"])
-    base = templates.get(decision, templates["escalate_rsk"])
-    return personalize_prefix(context, language) + base
+    return combine_explanation(template_explanation(decision, language))
 
 
-def explain_fusion(fusion: FusionOutput, language: str, context: FusionContext = None) -> str:
-    """Ask Gemini to narrate an already-decided fusion result, personalized to the
-    farmer's field context. Raises ExplainError on failure."""
+def explain_fusion(
+    fusion: FusionOutput,
+    language: str,
+    context: FusionContext = None,
+    visible_symptoms: list = None,
+) -> dict:
+    """Ask Gemini to narrate an already-decided fusion result as a STRUCTURED
+    {what, why, what_to_do} answer, weaving in relevant field context. Raises
+    ExplainError on failure (the caller falls back to template_explanation)."""
     language_name = LANGUAGE_NAMES.get(language, "English")
     facts = _context_facts(context)
     context_block = (
-        f"\n\nFarmer's field context (reference it naturally, do not repeat as a list):\n"
-        f"{json.dumps(facts)}"
+        f"\n\nFarmer's field context (weave into WHY only when relevant; do not list it, "
+        f"do not open with it):\n{json.dumps(facts)}"
         if facts
+        else ""
+    )
+    symptoms_block = (
+        f"\n\nVisible symptoms the camera saw (use these for WHY): {json.dumps(visible_symptoms)}"
+        if visible_symptoms
         else ""
     )
     prompt = (
         f"{EXPLAIN_SYSTEM_INSTRUCTION}\n\n"
         f"Respond in: {language_name}"
-        f"{context_block}\n\n"
+        f"{context_block}"
+        f"{symptoms_block}\n\n"
+        f'Return ONLY JSON of this exact shape: {{"what": "...", "why": "...", "what_to_do": "..."}}\n\n'
         f"Diagnosis result (JSON, for your reference only -- do not repeat it verbatim):\n"
         f"{fusion.model_dump_json()}"
     )
@@ -279,7 +315,16 @@ def explain_fusion(fusion: FusionOutput, language: str, context: FusionContext =
         text = (response.text or "").strip()
         if not text:
             raise ExplainError("Gemini returned an empty explanation")
-        return text
+        if text.startswith("```"):
+            text = text.strip("`")
+            text = text[text.find("{"):]
+        data = json.loads(text)
+        if not isinstance(data, dict):
+            raise ExplainError("Gemini explanation was not a JSON object")
+        explanation = {k: str(data.get(k, "")).strip() for k in ("what", "why", "what_to_do")}
+        if not any(explanation.values()):
+            raise ExplainError("Gemini explanation had no content")
+        return explanation
     except ExplainError:
         raise
     except Exception as exc:

@@ -39,6 +39,11 @@ class VisionCandidate(BaseModel):
 class VisionOutput(BaseModel):
     image_quality: Literal["good", "poor"]
     crop_confirmed: str
+    # The plant/crop the model identifies in the photo (identified FIRST), or
+    # "unidentifiable" when it cannot tell. matches_profile is set authoritatively
+    # by the backend against the farmer's current_crops (PROJECT_SPEC.md).
+    identified_crop: str = ""
+    matches_profile: bool = False
     candidates: list[VisionCandidate] = Field(default_factory=list)
     notes: str = ""
 
@@ -77,6 +82,11 @@ class FusionContext(BaseModel):
     # ignores it, but it personalizes the AI layer ("...at the flowering stage").
     growth_stage: Optional[str] = None
     crop_day: Optional[int] = None
+    # Cropping season derived from today's date (kharif|rabi|zaid) and the crop DB's
+    # susceptible diseases for the diagnosed crop -- both additive, used only to
+    # personalize/ground the AI explanation, never the deterministic fusion.
+    season: Optional[str] = None
+    susceptible_diseases: list[str] = Field(default_factory=list)
 
 
 class FusionInput(BaseModel):
@@ -187,10 +197,12 @@ class Case(BaseModel):
     id: Optional[str] = None
     farmer_id: str
     image_note: Optional[str] = None
+    # Small (downscaled) photo as a data URL, so the officer portal can show it.
+    image_data: Optional[str] = None
     vision: Optional[VisionOutput] = None
     context: Optional[FusionContext] = None
     fusion: Optional[FusionOutput] = None
-    status: Literal["pending", "advised", "escalated", "confirmed"] = "pending"
+    status: Literal["pending", "advised", "escalated", "disputed", "confirmed"] = "pending"
     officer_verdict: Optional[str] = None
     condition: Optional[Condition] = None
     contagious: Optional[bool] = None

@@ -121,15 +121,20 @@ def test_build_context_carries_soil_and_growth_stage(monkeypatch):
     assert context.soil.nitrogen == "unknown"
 
 
-# --- personalized fallbacks (no Gemini) ------------------------------------------
+# --- deterministic fallbacks (no Gemini) -----------------------------------------
 
-def test_template_message_references_soil_and_stage(monkeypatch):
+def test_template_message_never_prefixes_with_soil(monkeypatch):
+    # PROJECT_SPEC.md: no farmer message may open with "For your <soil> soil".
     monkeypatch.setattr(firestore_client, "get_crop", lambda cid: TOMATO)
     monkeypatch.setattr(firestore_client, "log_telemetry", lambda e: "t")
     context = main.build_context(_farmer(lang="en"))
-    msg = template_message("advise", "en", context)
-    assert "black" in msg
-    assert "flowering" in msg
+    advise = template_message("advise", "en", context)
+    escalate = template_message("escalate_rsk", "en", context)
+    assert not advise.lower().startswith("for your")
+    assert not escalate.lower().startswith("for your")
+    # advise is confident: no officer mention; escalate hands off to the officer.
+    assert "officer" not in advise.lower()
+    assert "officer" in escalate.lower()
 
 
 def test_recommendation_note_references_soil_and_stage(monkeypatch):
@@ -143,9 +148,10 @@ def test_recommendation_note_references_soil_and_stage(monkeypatch):
 
 # --- end-to-end diagnose on the deterministic path -------------------------------
 
-def test_diagnose_message_is_personalized_on_fallback(monkeypatch):
-    """With Gemini's vision + explain unavailable, the diagnosis still greets the
-    farmer with their own soil and growth stage (personalized template)."""
+def test_diagnose_message_has_no_soil_prefix_on_fallback(monkeypatch):
+    """With Gemini's vision + explain unavailable, the diagnosis falls back to the
+    deterministic template -- which must NOT open with "For your <soil> soil" and,
+    since vision=None escalates, hands off to the officer."""
     monkeypatch.setattr(firestore_client, "get_farmer", lambda fid: _farmer(lang="en"))
     monkeypatch.setattr(firestore_client, "get_crop", lambda cid: TOMATO)
     monkeypatch.setattr(firestore_client, "create_case", lambda case: "case-1")
@@ -160,6 +166,6 @@ def test_diagnose_message_is_personalized_on_fallback(monkeypatch):
     )
     assert resp.status_code == 200
     msg = resp.json()["message"]
-    assert "black" in msg and "flowering" in msg
+    assert not msg.lower().startswith("for your")
     # the deterministic core is unchanged: vision=None still escalates
     assert resp.json()["fusion"]["decision"] == "escalate_rsk"

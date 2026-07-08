@@ -19,7 +19,8 @@ KisanMate: a voice-first web app for small/marginal farmers in India, in English
 ## Firestore data model
 - farmers/{id}: name, phone, lang ("en"|"hi"|"te"), location {lat, lng, mandal}, crop, land_size_acres, growth_stage, soil_type, current_crops [{crop_id, planting_date}]
 - crops/{crop_id}: names {en, hi, te}, seasons [kharif|rabi|zaid], soil_types [black|red|alluvial|loam|sandy|clay], water_need [low|medium|high], regions [], cycle_days (int), growth_stages [{name, start_day, care_note}], susceptible_diseases [condition ids e.g. "late_blight"]
-- cases/{id}: farmer_id, image_note, vision (see contract), context (see contract), fusion (see contract), status ("pending"|"advised"|"escalated"|"confirmed"), officer_verdict, condition, contagious (bool), created_at
+- cases/{id}: farmer_id, image_note, vision (see contract), context (see contract), fusion (see contract), status ("pending"|"advised"|"escalated"|"disputed"|"confirmed"), officer_verdict, condition, contagious (bool), created_at
+  - "disputed": set when the farmer taps "This isn't right"; surfaces in the officer portal's "Farmer disputed" category. It is NOT an officer verdict (see "Farmer dispute vs officer verdict").
 - alerts/{id}: source_case_id, condition, tier ("watch"|"warning"|"alert"), center {lat, lng}, radius_km, recipient_ids [], created_at
 - telemetry/{id}: event, layer, detail, fallback_used (bool), created_at
 
@@ -55,8 +56,12 @@ After language selection, an auto-playing scripted scene sequence tells the hero
 
 ## Vision output contract (Gemini must return ONLY this JSON)
 { "image_quality": "good|poor", "crop_confirmed": "tomato|uncertain|<other>",
+  "identified_crop": "<crop the model sees in the photo, or 'unidentifiable'>",
+  "matches_profile": true,
   "candidates": [ { "condition": "late_blight|early_blight|nitrogen_deficiency|other|healthy", "confidence": 0.0, "visible_symptoms": [] } ],
   "notes": "" }
+- `identified_crop`: the plant/crop the model identifies in the photo (vision identifies the plant FIRST). "unidentifiable" when it cannot tell.
+- `matches_profile`: true when `identified_crop` matches one of the farmer's `current_crops`. See "Diagnosis — plant identification & multi-crop".
 
 ## Fusion input contract
 { "vision": {<vision output>},
@@ -85,9 +90,28 @@ Factor -> late_blight / early_blight / nitrogen_deficiency
 posterior(condition) proportional to vision_confidence(condition) * normalized_prior(condition), renormalized.
 
 ## Decision rules (in Python, deterministic and auditable)
-- decision = "escalate_rsk" if confidence < 0.55 OR margin < 0.15 OR conflict OR image_quality == "poor"; else "advise".
+- decision = "escalate_rsk" if confidence < 0.55 OR margin < 0.15 OR conflict OR image_quality == "poor" OR the plant is unidentifiable (`identified_crop` == "unidentifiable"); else "advise".
 - conflict = true when vision_top != prior_top AND both are individually strong (never silently override — escalate).
-- alert_eligible = the top condition's contagious flag. This marks candidacy only; the alert engine still applies the confirmation gate before firing.
+- Escalate ONLY on genuine uncertainty (the conditions above). Contagiousness alone must NOT escalate the farmer's result — a confident diagnosis of a contagious disease is still "advise" to the farmer.
+- alert_eligible = the top condition's contagious flag. This marks candidacy only; the alert engine still applies the confirmation gate before firing. `alert_eligible` / contagiousness must not feed back into the farmer's `decision` or confidence.
+
+## Diagnosis — confidence & escalation (fixes a current bug)
+- The farmer-facing result MUST be consistent with confidence:
+  - decision = "advise" (confident): show HIGH confidence and give direct, confident advice — with NO mention of the officer and NO "we're not sure" language.
+  - decision = "escalate_rsk" (uncertain): show an uncertain/medium confidence indicator and the "needs a closer look — sent to your RSK officer" message.
+- HIGH confidence together with "sent to the officer" must NEVER appear together.
+- Community alerts stay officer-gated, but that gating is a BACKGROUND step on the officer portal. It must never change or downgrade the farmer's own confident result.
+
+## Diagnosis — context use
+- Diagnosis takes the photo PLUS profile context: soil type, location, current weather/season (derived from today's date + location), and current crops. All of it is passed to vision, fusion, and the explanation.
+- Context is supporting information woven into the "why", NEVER a forced prefix. Do NOT begin messages with "For your <soil> soil —". Mention soil only when it is actually relevant to the condition (e.g. nutrient deficiency), and always use the real profile soil — never fabricate or mismatch it.
+- The explanation is well-structured: WHAT the condition is, WHY (from the visible symptoms + relevant context), and WHAT TO DO.
+
+## Diagnosis — plant identification & multi-crop
+- Vision identifies the plant/crop in the photo FIRST, populating `identified_crop` and `matches_profile` (see the vision contract).
+- If `identified_crop` matches one of the farmer's `current_crops`: proceed with that crop's disease profile.
+- If it does NOT match any of the farmer's crops: Gemini's identified plant is used, and the diagnosis proceeds using that identified plant's disease profile from the crops DB (or a general assessment if the plant isn't in the DB).
+- If the plant is unidentifiable: escalate (per the decision rules above).
 
 ## Community alert engine (the hero)
 A confirmed contagious case fires anonymized, crop-filtered alerts to nearby farmers, tiered by confidence:
@@ -95,6 +119,24 @@ A confirmed contagious case fires anonymized, crop-filtered alerts to nearby far
 - warning: a confirmed case nearby OR strong environmental signal.
 - alert: both true AND recipient grows the susceptible crop.
 Confirmation gate: an area alert fires only after (a) an RSK officer confirms the case, OR (b) N>=3 independent nearby reports of the same condition, OR (c) strong environmental agreement. The gate scales with blast radius: one farmer gets an immediate individual answer; a neighborhood alert always passes the gate. Alerts are anonymized ("blight confirmed in your area", never a farmer's name). Recipients are farmers within radius_km whose crop matches the susceptible host.
+
+## Farmer dispute vs officer verdict
+- "This isn't right" (farmer) sets the case to a DISPUTED state and places it in the officer portal's "Farmer disputed" category. It is NOT an officer verdict and does NOT trigger community-alert propagation.
+- Only the officer's Confirm/Override sets an authoritative verdict; confirming a contagious condition triggers propagation.
+
+## Admin (RSK officer) portal & auth
+- A single officer signs in via a SEPARATE admin login at /admin (a fixed demo credential is fine; show the demo credentials on the login page so a judge can enter, and name real auth as production). The officer session is separate from the farmer session. Farmers cannot reach /admin, and the officer is NOT routed through phone/OTP.
+- The portal shows flagged cases in TWO categories:
+  - (a) "AI needs review" — cases auto-escalated because the AI was uncertain.
+  - (b) "Farmer disputed" — cases a farmer flagged as wrong.
+  - Each case shows crop, location, photo, the AI's ranked candidates + confidence, and visible symptoms.
+- Actions: Confirm (accept the AI's top condition) or Override (pick a different condition). The verdict is authoritative and flows back to the farmer; confirming a contagious condition triggers the community alert.
+
+## Conversational crop recommendation
+- The recommendation screen is voice-first and conversational. The farmer speaks a free-form question (e.g. "what should I grow after tomatoes?").
+- The transcript + full profile context (soil, location, weather/season from date, current & recent crops) is sent to Gemini, GROUNDED with the relevant crops-DB entries.
+- Gemini returns a specific recommended crop (or two) with a clear structured "why" (soil, season/weather, rotation). The answer is read aloud.
+- It should feel like a conversation, not a form.
 
 ## Design principles (farmer-facing frontend)
 - Voice-first: a large microphone button is the primary action; responses are read aloud with text-to-speech; minimal reading required.
