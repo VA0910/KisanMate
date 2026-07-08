@@ -76,6 +76,18 @@
     <path d="M3 11l9-8 9 8"/>
     <path d="M5 10v10h14V10"/>
   </symbol>
+  <symbol id="icon-arrow-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="5" y1="12" x2="19" y2="12"/>
+    <polyline points="12 5 19 12 12 19"/>
+  </symbol>
+  <symbol id="icon-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.6a2 2 0 0 1-.5 2.1L8.1 9.6a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.5 2.6.6a2 2 0 0 1 1.7 2z"/>
+  </symbol>
+  <symbol id="icon-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+    <polyline points="16 17 21 12 16 7"/>
+    <line x1="21" y1="12" x2="9" y2="12"/>
+  </symbol>
 </svg>
 
 <header class="app-header">
@@ -83,14 +95,44 @@
     <span class="app-header-emoji" aria-hidden="true">🌾</span>
     <span class="app-header-title" data-i18n="appName">KisanMate</span>
   </div>
-  <button type="button" id="change-language-btn" class="icon-btn" data-i18n-aria="changeLanguage" aria-label="Change language">
-    <svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>
-  </button>
+  <div class="app-header-actions">
+    <button type="button" id="change-language-btn" class="icon-btn" data-i18n-aria="changeLanguage" aria-label="Change language">
+      <svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>
+    </button>
+    <button type="button" id="sign-out-btn" class="icon-btn" data-i18n-aria="signOut" aria-label="Sign out" hidden>
+      <svg class="icon" aria-hidden="true"><use href="#icon-logout"></use></svg>
+    </button>
+  </div>
 </header>
 
 <main id="main-content">
+  <!-- Screen 0: welcome / landing -->
+  <section id="screen-welcome" aria-labelledby="welcome-heading">
+    <div class="welcome-hero">
+      <span class="welcome-emoji" aria-hidden="true">🌾</span>
+      <h1 id="welcome-heading" class="multi-script-heading">
+        <span lang="en">Welcome to KisanMate</span>
+        <span lang="hi">KisanMate में आपका स्वागत है</span>
+        <span lang="te">KisanMate కు స్వాగతం</span>
+      </h1>
+      <p class="welcome-sub multi-script-sub">
+        <span lang="en">Your voice-first farm helper</span>
+        <span lang="hi">आपका आवाज़-आधारित खेती सहायक</span>
+        <span lang="te">మీ వాయిస్ ఆధారిత వ్యవసాయ సహాయకుడు</span>
+      </p>
+    </div>
+    <button type="button" id="welcome-start-btn" class="btn btn-primary btn-block">
+      <span data-i18n="getStarted">Get started</span>
+      <svg class="icon" aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
+    </button>
+    <button type="button" id="run-demo-btn-welcome" class="demo-launch demo-launch-secondary">
+      <span class="demo-launch-icon" aria-hidden="true">▶</span>
+      <span data-i18n="runDemo">Run demo scenario</span>
+    </button>
+  </section>
+
   <!-- Screen 1: language picker -->
-  <section id="screen-language" aria-labelledby="language-heading">
+  <section id="screen-language" hidden aria-labelledby="language-heading">
     <h1 id="language-heading" class="multi-script-heading">
       <span lang="en">Choose your language</span>
       <span lang="hi">अपनी भाषा चुनें</span>
@@ -110,10 +152,58 @@
         <span class="lang-card-name">తెలుగు</span>
       </button>
     </div>
-    <button type="button" id="run-demo-btn-lang" class="demo-launch demo-launch-secondary">
-      <span class="demo-launch-icon" aria-hidden="true">▶</span>
-      <span>Run demo scenario</span>
+    <button type="button" id="language-next-btn" class="btn btn-primary btn-block" data-i18n-aria="continueLabel" disabled>
+      <span data-i18n="continueLabel">Continue</span>
+      <svg class="icon" aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
     </button>
+  </section>
+
+  <!-- Screen 1b: phone entry -->
+  <section id="screen-phone" hidden aria-labelledby="phone-heading">
+    <h1 id="phone-heading" data-i18n="phoneTitle">Sign in with your phone</h1>
+    <p data-i18n="phoneInstruction">Enter your phone number and we'll send you a code.</p>
+    <form id="phone-form" novalidate>
+      <label class="field-label" for="phone-input" data-i18n="phoneLabel">Phone number</label>
+      <div class="phone-input-wrap">
+        <span class="phone-prefix" aria-hidden="true">+91</span>
+        <input type="tel" id="phone-input" class="text-input" inputmode="numeric"
+               autocomplete="tel" maxlength="10" placeholder="10-digit mobile number"
+               data-i18n-placeholder="phonePlaceholder">
+      </div>
+      <p id="phone-hint" class="hint-text" aria-live="polite"></p>
+      <button type="submit" id="send-otp-btn" class="btn btn-primary btn-block" data-i18n="sendCode">Send code</button>
+    </form>
+    <button type="button" id="phone-back-btn" class="btn btn-secondary btn-block" data-i18n="back">Back</button>
+  </section>
+
+  <!-- Screen 1c: OTP entry -->
+  <section id="screen-otp" hidden aria-labelledby="otp-heading">
+    <h1 id="otp-heading" data-i18n="otpTitle">Enter the code</h1>
+    <p id="otp-sent-to" class="text-muted"></p>
+    <div id="demo-otp-banner" class="demo-otp-banner" aria-live="polite">
+      <span data-i18n="demoOtpLabel">Demo OTP</span>: <span id="demo-otp-code" class="demo-otp-code"></span>
+    </div>
+    <form id="otp-form" novalidate>
+      <label class="field-label" for="otp-input" data-i18n="otpLabel">4-digit code</label>
+      <input type="text" id="otp-input" class="text-input otp-input" inputmode="numeric"
+             autocomplete="one-time-code" maxlength="4" placeholder="––––">
+      <p id="otp-hint" class="hint-text" aria-live="polite"></p>
+      <button type="submit" id="verify-otp-btn" class="btn btn-primary btn-block" data-i18n="verifyCode">Verify &amp; continue</button>
+    </form>
+    <button type="button" id="otp-back-btn" class="btn btn-secondary btn-block" data-i18n="changeNumber">Change number</button>
+  </section>
+
+  <!-- Screen 1d: profile setup (new farmers) -->
+  <section id="screen-profile" hidden aria-labelledby="profile-heading">
+    <h1 id="profile-heading" data-i18n="profileSetupTitle">Set up your profile</h1>
+    <p data-i18n="profileSetupIntro">Welcome! Tell us your name to get started. You can add your farm details next.</p>
+    <form id="profile-form" novalidate>
+      <label class="field-label" for="profile-name-input" data-i18n="profileNameLabel">Your name</label>
+      <input type="text" id="profile-name-input" class="text-input" autocomplete="name"
+             data-i18n-placeholder="profileNamePlaceholder" placeholder="e.g. Ramesh">
+      <p id="profile-hint" class="hint-text" aria-live="polite"></p>
+      <button type="submit" id="profile-continue-btn" class="btn btn-primary btn-block" data-i18n="continueBtn">Continue to home</button>
+    </form>
   </section>
 
   <!-- Screen 2: home -->

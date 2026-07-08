@@ -1,3 +1,4 @@
+import random
 from pathlib import Path
 from typing import Optional
 
@@ -20,7 +21,15 @@ from explain import (
     explain_recommendations,
     template_message,
 )
-from models import Case, ContextLocation, Farmer, FusionContext, Soil, Telemetry
+from models import (
+    Case,
+    ContextLocation,
+    Farmer,
+    FarmerLocation,
+    FusionContext,
+    Soil,
+    Telemetry,
+)
 from vision import VisionError, diagnose_image
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -83,6 +92,24 @@ class DemoRequest(BaseModel):
     lang: str = "en"
 
 
+class RequestOtpRequest(BaseModel):
+    phone: str
+
+
+class VerifyOtpRequest(BaseModel):
+    phone: str
+    code: str
+    # Language chosen during onboarding, used to seed a brand-new farmer.
+    lang: str = "en"
+
+
+# In-memory pending OTPs, keyed by normalized phone. This is the MOCKED OTP store
+# for the prototype (PROJECT_SPEC.md): request-otp returns the code so the UI can
+# show it; verify-otp checks against it. The production step is SMS delivery with
+# a shared/persistent store; in the single-process demo an in-memory dict suffices.
+_PENDING_OTP: dict[str, str] = {}
+
+
 def _build_context(farmer: Farmer) -> FusionContext:
     """Assemble the fusion context for a farmer, degrading gracefully per source.
 
@@ -119,6 +146,62 @@ def _log_event(event: str, layer: str, detail: str, fallback_used: bool = False)
 
 def _log_fallback(event: str, detail: str) -> None:
     _log_event(event, "ai_content", detail, fallback_used=True)
+
+
+@app.post("/api/auth/request-otp")
+def request_otp(request: RequestOtpRequest):
+    """Generate a 4-digit OTP for a phone number and return it (demo mode).
+
+    PROJECT_SPEC.md: the OTP is MOCKED for the prototype -- we return the code in
+    the response so the UI can display "Demo OTP: XXXX" and an unattended judge can
+    proceed without a real SMS. Sending it over SMS is the named production step.
+    """
+    phone = firestore_client.normalize_phone(request.phone)
+    if len(phone) < 10:
+        raise HTTPException(status_code=400, detail="please enter a valid 10-digit phone number")
+    code = "%04d" % random.randint(0, 9999)
+    _PENDING_OTP[phone] = code
+    return {"phone": phone, "code": code, "demo": True}
+
+
+@app.post("/api/auth/verify-otp")
+def verify_otp(request: VerifyOtpRequest):
+    """Verify the OTP and return { farmer, is_new }.
+
+    A phone that matches no farmer creates a new, minimal farmer document (to be
+    completed in profile setup) with is_new=true; a known phone returns the
+    existing farmer with is_new=false. Existing document IDs are never changed --
+    auth only resolves phone -> document (PROJECT_SPEC.md).
+    """
+    phone = firestore_client.normalize_phone(request.phone)
+    expected = _PENDING_OTP.get(phone)
+    if not expected or request.code.strip() != expected:
+        raise HTTPException(status_code=401, detail="that code doesn't match; please try again")
+    # One-time use: consume the code so it can't be replayed.
+    _PENDING_OTP.pop(phone, None)
+
+    try:
+        farmer = firestore_client.get_farmer_by_phone(phone)
+        if farmer is not None:
+            return {"farmer": farmer.model_dump(), "is_new": False}
+
+        lang = request.lang if request.lang in ("en", "hi", "te") else "en"
+        new_farmer = Farmer(
+            name="",
+            phone=phone,
+            lang=lang,
+            location=FarmerLocation(lat=0.0, lng=0.0, mandal=""),
+            crop="",
+            land_size_acres=0.0,
+            growth_stage="",
+        )
+        new_id = firestore_client.upsert_farmer(new_farmer)
+        new_farmer.id = new_id
+        return {"farmer": new_farmer.model_dump(), "is_new": True}
+    except Exception as exc:
+        # Firestore unreachable -- report honestly rather than fabricate a session.
+        _log_event("auth_verify_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="sign-in is temporarily unavailable; please retry")
 
 
 @app.post("/api/diagnose")

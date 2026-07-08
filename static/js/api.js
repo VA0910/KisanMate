@@ -56,6 +56,30 @@
     });
   }
 
+  function requestOtp(phone) {
+    return requestJson(
+      "/api/auth/request-otp",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: phone })
+      },
+      15000
+    );
+  }
+
+  function verifyOtp(phone, code, lang) {
+    return requestJson(
+      "/api/auth/verify-otp",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: phone, code: code, lang: lang || "en" })
+      },
+      15000
+    );
+  }
+
   function diagnose(farmerId, imageFile, imageNote) {
     var form = new FormData();
     form.append("farmer_id", farmerId);
@@ -110,6 +134,8 @@
 
   global.KM_API = {
     KMApiError: KMApiError,
+    requestOtp: requestOtp,
+    verifyOtp: verifyOtp,
     diagnose: diagnose,
     recommend: recommend,
     getAlerts: getAlerts,

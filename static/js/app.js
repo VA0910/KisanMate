@@ -9,7 +9,9 @@
 
   var $ = document.getElementById.bind(document);
 
-  var DEFAULT_FARMER_ID = "ramesh";
+  var SESSION_KEY = "kisanmate_session";
+  // The screens that make up the signed-in app (bottom nav shows only on these).
+  var APP_SCREENS = { home: true, diagnose: true, recommend: true, alerts: true };
 
   var SOIL_OPTIONS = ["alluvial", "black", "loamy", "red", "sandy"];
   var ZONE_OPTIONS = ["delta", "coastal", "upland", "semi_arid"];
@@ -21,7 +23,11 @@
   var TIER_ICON = { watch: "icon-info-circle", warning: "icon-alert-triangle", alert: "icon-alert-octagon" };
 
   var SECTION_IDS = {
+    welcome: "screen-welcome",
     language: "screen-language",
+    phone: "screen-phone",
+    otp: "screen-otp",
+    profile: "screen-profile",
     home: "screen-home",
     diagnose: "screen-diagnose",
     recommend: "screen-recommend",
@@ -30,26 +36,61 @@
 
   var state = {
     lang: localStorage.getItem("kisanmate_lang"),
-    farmerId: resolveFarmerId(),
+    session: loadSession(),
+    farmerId: null,
     screen: null,
     micState: "idle",
     diagnosePhotoFile: null,
     lastDiagnoseCaseId: null,
     lastDiagnoseMessage: "",
     recommendSelections: { soil: null, zone: null, rainfall: null, groundwater: null },
+    pendingPhone: null,
     demoActive: false
   };
 
   if (state.lang && !window.KM_STRINGS[state.lang]) state.lang = null;
 
-  function resolveFarmerId() {
-    var params = new URLSearchParams(window.location.search);
-    var fromQuery = params.get("farmer");
+  // Optional dev override: ?farmer=<id> signs in as that farmer without OTP.
+  // The localStorage session remains the real source of truth (PROJECT_SPEC.md).
+  (function applyDevFarmerOverride() {
+    var fromQuery = new URLSearchParams(window.location.search).get("farmer");
     if (fromQuery) {
-      localStorage.setItem("kisanmate_farmer_id", fromQuery);
-      return fromQuery;
+      saveSession({ id: fromQuery, name: "", phone: "", lang: state.lang || "en" });
     }
-    return localStorage.getItem("kisanmate_farmer_id") || DEFAULT_FARMER_ID;
+  })();
+
+  if (state.session && state.session.farmer) state.farmerId = state.session.farmer.id;
+
+  // ---- session (phone + OTP sign-in, persisted in localStorage) -----------------
+
+  function loadSession() {
+    try {
+      var raw = localStorage.getItem(SESSION_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function saveSession(farmer) {
+    state.session = { farmer: farmer, at: Date.now() };
+    state.farmerId = farmer.id;
+    localStorage.setItem(SESSION_KEY, JSON.stringify(state.session));
+    // If the farmer has a saved language, adopt it as the app language.
+    if (farmer.lang && window.KM_STRINGS[farmer.lang]) {
+      state.lang = farmer.lang;
+      localStorage.setItem("kisanmate_lang", farmer.lang);
+    }
+  }
+
+  function clearSession() {
+    state.session = null;
+    state.farmerId = null;
+    localStorage.removeItem(SESSION_KEY);
+  }
+
+  function isSignedIn() {
+    return !!(state.session && state.session.farmer && state.session.farmer.id);
   }
 
   function dict() {
@@ -90,12 +131,31 @@
       var val = d[el.getAttribute("data-i18n-alt")];
       if (typeof val === "string") el.setAttribute("alt", val);
     });
+    document.querySelectorAll("[data-i18n-placeholder]").forEach(function (el) {
+      var val = d[el.getAttribute("data-i18n-placeholder")];
+      if (typeof val === "string") el.setAttribute("placeholder", val);
+    });
     document.title = d.appName + " – " + d.tagline;
     if (!window.KM_SPEECH.sttAvailable) {
       var micHint = $("mic-hint");
       if (micHint) micHint.textContent = t("micUnavailableHint");
     }
     markCurrentLanguageCard();
+    updateHomeGreeting();
+    updateHeaderButtons();
+  }
+
+  function updateHomeGreeting() {
+    var heading = $("home-heading");
+    if (!heading) return;
+    var greeting = t("homeGreeting");
+    var name = state.session && state.session.farmer ? state.session.farmer.name : "";
+    heading.textContent = name ? greeting + ", " + name : greeting;
+  }
+
+  function updateHeaderButtons() {
+    var signOutBtn = $("sign-out-btn");
+    if (signOutBtn) signOutBtn.hidden = !isSignedIn();
   }
 
   function markCurrentLanguageCard() {
@@ -120,10 +180,10 @@
     });
     state.screen = name;
 
-    // The bottom nav is hidden on the language picker and throughout the guided
-    // demo (the demo drives navigation itself).
+    // The bottom nav shows only on the signed-in app screens -- never during
+    // onboarding (welcome/language/phone/otp/profile) or the guided demo.
     var bottomNav = $("bottom-nav");
-    if (bottomNav) bottomNav.hidden = name === "language" || state.demoActive;
+    if (bottomNav) bottomNav.hidden = !APP_SCREENS[name] || state.demoActive;
     document.querySelectorAll(".nav-btn").forEach(function (btn) {
       if (btn.getAttribute("data-target") === name) btn.setAttribute("aria-current", "page");
       else btn.removeAttribute("aria-current");
@@ -584,15 +644,126 @@
 
   function wireLanguageCards() {
     document.querySelectorAll(".lang-card").forEach(function (btn) {
+      // Picking a card only SELECTS the language (applies it live); a forward
+      // arrow advances -- to phone sign-in during onboarding, or back home when
+      // the picker was opened via the header to change language while signed in.
       btn.addEventListener("click", function () {
         setLang(btn.getAttribute("data-lang"));
-        showScreen("home");
+        $("language-next-btn").disabled = false;
       });
     });
+    $("language-next-btn").addEventListener("click", function () {
+      if (!state.lang) return;
+      showScreen(isSignedIn() ? "home" : "phone");
+    });
+  }
+
+  function wireWelcome() {
+    $("welcome-start-btn").addEventListener("click", function () { showScreen("language"); });
+  }
+
+  // ---- phone + OTP sign-in --------------------------------------------------------
+
+  function wireAuth() {
+    $("phone-form").addEventListener("submit", function (e) {
+      e.preventDefault();
+      submitPhone();
+    });
+    $("phone-back-btn").addEventListener("click", function () { showScreen("language"); });
+
+    $("otp-form").addEventListener("submit", function (e) {
+      e.preventDefault();
+      submitOtp();
+    });
+    $("otp-back-btn").addEventListener("click", function () {
+      $("otp-input").value = "";
+      showScreen("phone");
+    });
+
+    $("profile-form").addEventListener("submit", function (e) {
+      e.preventDefault();
+      finishProfileSetup();
+    });
+  }
+
+  function submitPhone() {
+    var raw = ($("phone-input").value || "").replace(/\D/g, "");
+    if (raw.length < 10) {
+      $("phone-hint").textContent = t("phoneInvalid");
+      return;
+    }
+    $("phone-hint").textContent = "";
+    var btn = $("send-otp-btn");
+    btn.disabled = true;
+    window.KM_API.requestOtp(raw)
+      .then(function (data) {
+        state.pendingPhone = data.phone || raw;
+        $("otp-sent-to").textContent = t("otpSentTo")(state.pendingPhone);
+        // Demo mode: the code comes back in the response so anyone can proceed.
+        $("demo-otp-code").textContent = data.code || "";
+        $("otp-input").value = "";
+        $("otp-hint").textContent = "";
+        showScreen("otp");
+        $("otp-input").focus();
+      })
+      .catch(function () {
+        $("phone-hint").textContent = t("otpRequestError");
+      })
+      .finally(function () { btn.disabled = false; });
+  }
+
+  function submitOtp() {
+    var code = ($("otp-input").value || "").replace(/\D/g, "");
+    if (code.length < 4) {
+      $("otp-hint").textContent = t("otpInvalid");
+      return;
+    }
+    $("otp-hint").textContent = "";
+    var btn = $("verify-otp-btn");
+    btn.disabled = true;
+    window.KM_API.verifyOtp(state.pendingPhone, code, state.lang || "en")
+      .then(function (data) {
+        saveSession(data.farmer);
+        applyStrings();
+        rebuildRecommendOptionGroups();
+        if (data.is_new) {
+          $("profile-name-input").value = data.farmer.name || "";
+          showScreen("profile");
+          $("profile-name-input").focus();
+        } else {
+          showScreen("home");
+        }
+      })
+      .catch(function () {
+        $("otp-hint").textContent = t("otpInvalid");
+      })
+      .finally(function () { btn.disabled = false; });
+  }
+
+  function finishProfileSetup() {
+    // Minimal setup for this step: capture the name locally so home greets them.
+    // Full profile (location, soil, crops) is the dedicated profile-page step;
+    // this persists to the session and re-feeds the greeting immediately.
+    var name = ($("profile-name-input").value || "").trim();
+    if (state.session && state.session.farmer) {
+      state.session.farmer.name = name;
+      saveSession(state.session.farmer);
+    }
+    applyStrings();
+    showScreen("home");
+  }
+
+  function signOut() {
+    window.KM_SPEECH.stopSpeaking();
+    clearSession();
+    updateHeaderButtons();
+    toast(t("signedOut"));
+    showScreen("welcome");
   }
 
   function wireHeader() {
     $("change-language-btn").addEventListener("click", function () { showScreen("language"); });
+    $("sign-out-btn").addEventListener("click", signOut);
   }
 
   function wireBottomNav() {
@@ -754,8 +925,9 @@
     $("demo-overlay").hidden = true;
     document.body.classList.remove("demo-running");
     applyDemoLang(demoState.narratorLang); // restore the judge's language
-    showScreen("home");
-    $("run-demo-btn").focus();
+    // Return to wherever the demo makes sense to exit to: the app home if signed
+    // in, otherwise back to the welcome landing (the demo can run signed-out).
+    showScreen(isSignedIn() ? "home" : "welcome");
   }
 
   function resetDemoData() {
@@ -769,7 +941,7 @@
 
   function wireDemo() {
     $("run-demo-btn").addEventListener("click", startDemo);
-    $("run-demo-btn-lang").addEventListener("click", startDemo);
+    $("run-demo-btn-welcome").addEventListener("click", startDemo);
     $("reset-demo-btn").addEventListener("click", resetDemoData);
     $("demo-next-btn").addEventListener("click", function () {
       clearTimeout(demoState.timer);
@@ -782,7 +954,9 @@
   // ---- boot -----------------------------------------------------------------------
 
   function init() {
+    wireWelcome();
     wireLanguageCards();
+    wireAuth();
     wireHeader();
     wireBottomNav();
     wireHome();
@@ -791,12 +965,19 @@
     wireAlerts();
     wireDemo();
 
+    // Language is applied whenever it is known so onboarding screens are localized.
     if (state.lang) {
       applyStrings();
       rebuildRecommendOptionGroups();
+      $("language-next-btn").disabled = false;
+    }
+
+    // localStorage session is the source of truth: signed in -> straight home;
+    // otherwise start at the welcome landing and walk the onboarding flow.
+    if (isSignedIn()) {
       showScreen("home");
     } else {
-      showScreen("language");
+      showScreen("welcome");
     }
   }
 

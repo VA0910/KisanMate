@@ -179,6 +179,8 @@ input:focus-visible,
 }
 .app-header-emoji { font-size: 1.4rem; }
 
+.app-header-actions { display: flex; align-items: center; gap: var(--space-1); }
+
 .icon-btn {
   min-width: 48px;
   min-height: 48px;
@@ -290,6 +292,97 @@ section[id^="screen-"] > h1 { outline: none; }
   background: var(--surface-alt);
 }
 .lang-card-emoji { font-size: 1.6rem; }
+
+#language-next-btn { margin-top: var(--space-4); }
+
+/* ---------- welcome / onboarding -------------------------------------------- */
+
+#screen-welcome { text-align: center; }
+
+.welcome-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-5) 0;
+}
+.welcome-emoji { font-size: 4rem; line-height: 1; }
+.welcome-sub { color: var(--text-muted); }
+.multi-script-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1em;
+  font-size: 1rem;
+}
+#welcome-start-btn { margin-bottom: var(--space-3); }
+
+/* ---------- phone + OTP sign-in --------------------------------------------- */
+
+.field-label {
+  display: block;
+  font-weight: 600;
+  margin: var(--space-3) 0 var(--space-1);
+}
+
+.text-input {
+  width: 100%;
+  min-height: 52px;
+  padding: var(--space-2) var(--space-3);
+  font-size: 1.2rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.text-input:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-color: var(--focus-ring);
+}
+
+.phone-input-wrap {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+.phone-prefix {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  font-size: 1.2rem;
+  font-weight: 600;
+  background: var(--surface-alt);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.phone-input-wrap .text-input { flex: 1; }
+
+.otp-input {
+  text-align: center;
+  letter-spacing: 0.6em;
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.demo-otp-banner {
+  margin: var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--watch-bg);
+  color: var(--watch);
+  border: 1px dashed var(--watch);
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  text-align: center;
+}
+.demo-otp-code {
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+}
+
+#screen-phone .btn-block,
+#screen-otp .btn-block,
+#screen-profile .btn-block { margin-top: var(--space-3); }
 
 /* ---------- home ------------------------------------------------------------- */
 

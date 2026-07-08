@@ -40,6 +40,33 @@ def get_farmer(farmer_id: str) -> Optional[Farmer]:
     return Farmer(id=doc.id, **doc.to_dict())
 
 
+def normalize_phone(phone: str) -> str:
+    """Reduce a phone number to comparable digits: strip formatting and any
+    country code, keeping the last 10 digits (Indian mobile length).
+
+    So "+91-9876500001", "91 98765 00001", and "9876500001" all match, letting
+    a farmer type their bare 10-digit number to reach their seeded document.
+    """
+    digits = "".join(ch for ch in (phone or "") if ch.isdigit())
+    return digits[-10:] if len(digits) > 10 else digits
+
+
+def get_farmer_by_phone(phone: str) -> Optional[Farmer]:
+    """Resolve a phone number to an existing farmer document (phone is identity).
+
+    Matches on the normalized number so the stored format (e.g. "+91-...") need
+    not equal what the farmer typed. The farmer set is tiny, so a scan is fine
+    and avoids depending on an exact-string index.
+    """
+    target = normalize_phone(phone)
+    if not target:
+        return None
+    for farmer in list_farmers():
+        if normalize_phone(farmer.phone) == target:
+            return farmer
+    return None
+
+
 def list_farmers() -> list[Farmer]:
     docs = get_client().collection(FARMERS_COLLECTION).stream()
     return [Farmer(id=doc.id, **doc.to_dict()) for doc in docs]
