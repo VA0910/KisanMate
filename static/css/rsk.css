@@ -47,6 +47,10 @@
 
 * , *::before, *::after { box-sizing: border-box; }
 
+/* The `hidden` attribute must always win over element `display` rules below,
+   otherwise the login gate, portal, and panel state-blocks all render at once. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--bg);

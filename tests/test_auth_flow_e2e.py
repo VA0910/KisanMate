@@ -351,6 +351,8 @@ def test_admin_login_shows_portal_with_both_tabs(page, base_url):
     page.click("#admin-login-btn")
 
     page.wait_for_selector("#admin-portal:not([hidden])")
+    # The login gate must actually hide (regression: [hidden] overridden by CSS).
+    assert page.is_hidden("#admin-login")
     assert page.is_visible("#tab-review") and page.is_visible("#tab-disputed")
 
 
