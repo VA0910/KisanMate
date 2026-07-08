@@ -593,6 +593,58 @@ section[id^="screen-"] > h1 { outline: none; }
 .hint-text { color: var(--danger); min-height: 1.5em; font-weight: 600; }
 .hint-text:empty { display: none; }
 
+/* Larger, easier-to-tap chips for low-literacy setup (soil types). */
+.chip-group-lg .chip-label {
+  min-height: 56px;
+  padding: var(--space-2) var(--space-4);
+  font-size: 1.2rem;
+}
+
+/* ---------- profile setup wizard + profile page ----------------------------- */
+
+.setup-progress {
+  height: 8px;
+  background: var(--surface-alt);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: var(--space-2) 0;
+}
+.setup-progress > span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--primary);
+  transition: width 0.3s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .setup-progress > span { transition: none; }
+}
+
+.setup-step h2 { margin-top: var(--space-3); }
+.setup-step .setup-next { margin-top: var(--space-4); }
+
+.setup-nav {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.setup-nav .btn { flex: 1; }
+
+.location-status { color: var(--text-muted); min-height: 1.5em; }
+.location-status:empty { display: none; }
+
+.crops-editor { display: flex; flex-direction: column; gap: var(--space-2); }
+.crop-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.crop-row-select { flex: 2; min-width: 0; }
+.crop-row-date { flex: 1.4; min-width: 0; }
+.crop-row-remove { flex: 0 0 auto; border-color: var(--danger); color: var(--danger); }
+
+#sign-out-btn { margin-top: var(--space-4); }
+
 /* ---------- recommend: results ------------------------------------------------ */
 
 .crop-list {

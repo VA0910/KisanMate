@@ -51,6 +51,16 @@ def normalize_phone(phone: str) -> str:
     return digits[-10:] if len(digits) > 10 else digits
 
 
+def update_farmer(farmer_id: str, updates: dict) -> None:
+    """Apply a partial update to a farmer document (profile edits).
+
+    Only the provided keys are written, so unrelated fields (name, phone, the
+    seeded crop, etc.) are preserved. Nested fields like `location` and
+    `current_crops` are passed as whole values.
+    """
+    get_client().collection(FARMERS_COLLECTION).document(farmer_id).update(updates)
+
+
 def get_farmer_by_phone(phone: str) -> Optional[Farmer]:
     """Resolve a phone number to an existing farmer document (phone is identity).
 

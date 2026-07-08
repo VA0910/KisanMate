@@ -151,6 +151,13 @@ class CropRecommendation(BaseModel):
 
 # --- firestore: farmers/{id} -------------------------------------------------
 
+class CurrentCrop(BaseModel):
+    """A crop the farmer is currently growing. planting_date (ISO YYYY-MM-DD) is
+    required per crop -- it's what makes memory/reminders possible (PROJECT_SPEC.md)."""
+    crop_id: str
+    planting_date: str
+
+
 class Farmer(BaseModel):
     id: Optional[str] = None
     name: str
@@ -160,6 +167,10 @@ class Farmer(BaseModel):
     crop: str
     land_size_acres: float
     growth_stage: str
+    # Profile additions (PROJECT_SPEC.md): feed recommendations, diagnosis
+    # context, and reminders.
+    soil_type: Optional[str] = None
+    current_crops: list[CurrentCrop] = Field(default_factory=list)
 
 
 # --- firestore: cases/{id} ---------------------------------------------------

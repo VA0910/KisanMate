@@ -110,6 +110,33 @@ class VerifyOtpRequest(BaseModel):
 _PENDING_OTP: dict[str, str] = {}
 
 
+class CurrentCropIn(BaseModel):
+    crop_id: str
+    planting_date: str
+
+
+class LocationIn(BaseModel):
+    lat: float
+    lng: float
+    mandal: str = ""
+
+
+class UpdateFarmerRequest(BaseModel):
+    """Partial profile update -- only the provided fields are written."""
+    name: Optional[str] = None
+    lang: Optional[str] = None
+    soil_type: Optional[str] = None
+    location: Optional[LocationIn] = None
+    current_crops: Optional[list[CurrentCropIn]] = None
+
+
+class TelemetryIn(BaseModel):
+    event: str
+    layer: str = "location"
+    detail: Optional[dict] = None
+    fallback_used: bool = False
+
+
 def _build_context(farmer: Farmer) -> FusionContext:
     """Assemble the fusion context for a farmer, degrading gracefully per source.
 
@@ -202,6 +229,87 @@ def verify_otp(request: VerifyOtpRequest):
         # Firestore unreachable -- report honestly rather than fabricate a session.
         _log_event("auth_verify_error", "api", str(exc))
         raise HTTPException(status_code=503, detail="sign-in is temporarily unavailable; please retry")
+
+
+@app.get("/api/farmers/{farmer_id}")
+def read_farmer(farmer_id: str):
+    """The signed-in farmer's profile (for the profile page to load current values)."""
+    try:
+        farmer = firestore_client.get_farmer(farmer_id)
+    except Exception as exc:
+        _log_event("farmer_get_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="profile temporarily unavailable")
+    if farmer is None:
+        raise HTTPException(status_code=404, detail="farmer not found")
+    return farmer.model_dump()
+
+
+@app.patch("/api/farmers/{farmer_id}")
+def patch_farmer(farmer_id: str, request: UpdateFarmerRequest):
+    """Persist profile edits (setup and the profile page both write here).
+
+    Human-override layer (PROJECT_SPEC.md): the farmer's own values overwrite
+    whatever was inferred/placeholder, and take effect immediately downstream.
+    A planting date is required for every current crop -- it's what enables
+    memory/reminders.
+    """
+    try:
+        farmer = firestore_client.get_farmer(farmer_id)
+    except Exception as exc:
+        _log_event("farmer_patch_lookup_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="profile store temporarily unavailable")
+    if farmer is None:
+        raise HTTPException(status_code=404, detail="farmer not found")
+
+    updates: dict = {}
+    if request.name is not None:
+        updates["name"] = request.name
+    if request.lang is not None:
+        if request.lang not in ("en", "hi", "te"):
+            raise HTTPException(status_code=400, detail="unsupported language")
+        updates["lang"] = request.lang
+    if request.soil_type is not None:
+        updates["soil_type"] = request.soil_type
+    if request.location is not None:
+        updates["location"] = request.location.model_dump()
+    if request.current_crops is not None:
+        for crop in request.current_crops:
+            if not crop.crop_id or not crop.planting_date:
+                raise HTTPException(
+                    status_code=400, detail="each crop needs a crop and a planting date"
+                )
+        updates["current_crops"] = [crop.model_dump() for crop in request.current_crops]
+
+    if not updates:
+        return farmer.model_dump()
+
+    try:
+        firestore_client.update_farmer(farmer_id, updates)
+        updated = firestore_client.get_farmer(farmer_id)
+    except Exception as exc:
+        _log_event("farmer_patch_write_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="could not save your profile; please retry")
+    return updated.model_dump()
+
+
+@app.post("/api/telemetry")
+def post_telemetry(entry: TelemetryIn):
+    """Frontend-originated telemetry (e.g. the silent geolocation fallback).
+
+    Best-effort: a logging failure must never surface to the farmer, matching the
+    rest of the telemetry path (PROJECT_SPEC.md layer 3)."""
+    try:
+        firestore_client.log_telemetry(
+            Telemetry(
+                event=entry.event,
+                layer=entry.layer,
+                detail=entry.detail,
+                fallback_used=entry.fallback_used,
+            )
+        )
+    except Exception:
+        pass
+    return {"ok": True}
 
 
 @app.post("/api/diagnose")

@@ -11,7 +11,7 @@
 
   var SESSION_KEY = "kisanmate_session";
   // The screens that make up the signed-in app (bottom nav shows only on these).
-  var APP_SCREENS = { home: true, diagnose: true, recommend: true, alerts: true };
+  var APP_SCREENS = { home: true, diagnose: true, recommend: true, alerts: true, profile: true };
 
   var SOIL_OPTIONS = ["alluvial", "black", "loamy", "red", "sandy"];
   var ZONE_OPTIONS = ["delta", "coastal", "upland", "semi_arid"];
@@ -27,6 +27,7 @@
     language: "screen-language",
     phone: "screen-phone",
     otp: "screen-otp",
+    "profile-setup": "screen-profile-setup",
     profile: "screen-profile",
     home: "screen-home",
     diagnose: "screen-diagnose",
@@ -154,8 +155,9 @@
   }
 
   function updateHeaderButtons() {
-    var signOutBtn = $("sign-out-btn");
-    if (signOutBtn) signOutBtn.hidden = !isSignedIn();
+    // The account button (which opens the profile page) shows only when signed in.
+    var profileBtn = $("open-profile-btn");
+    if (profileBtn) profileBtn.hidden = !isSignedIn();
   }
 
   function markCurrentLanguageCard() {
@@ -679,11 +681,6 @@
       $("otp-input").value = "";
       showScreen("phone");
     });
-
-    $("profile-form").addEventListener("submit", function (e) {
-      e.preventDefault();
-      finishProfileSetup();
-    });
   }
 
   function submitPhone() {
@@ -727,9 +724,7 @@
         applyStrings();
         rebuildRecommendOptionGroups();
         if (data.is_new) {
-          $("profile-name-input").value = data.farmer.name || "";
-          showScreen("profile");
-          $("profile-name-input").focus();
+          openSetup();
         } else {
           showScreen("home");
         }
@@ -740,17 +735,354 @@
       .finally(function () { btn.disabled = false; });
   }
 
-  function finishProfileSetup() {
-    // Minimal setup for this step: capture the name locally so home greets them.
-    // Full profile (location, soil, crops) is the dedicated profile-page step;
-    // this persists to the session and re-feeds the greeting immediately.
-    var name = ($("profile-name-input").value || "").trim();
-    if (state.session && state.session.farmer) {
-      state.session.farmer.name = name;
-      saveSession(state.session.farmer);
+  // ---- profile: shared building blocks (used by setup wizard + profile page) -----
+
+  // District fallback for the location layer (PROJECT_SPEC.md), defaulting to
+  // Guntur. Each carries a representative lat/lng so downstream distance/alert
+  // math still works when device geolocation isn't available.
+  var DISTRICTS = [
+    { id: "Guntur", lat: 16.3067, lng: 80.4365 },
+    { id: "Bapatla", lat: 15.9044, lng: 80.4672 },
+    { id: "Palnadu", lat: 16.2350, lng: 80.0490 },
+    { id: "Krishna", lat: 16.1875, lng: 81.1389 },
+    { id: "NTR (Vijayawada)", lat: 16.5062, lng: 80.6480 },
+    { id: "Prakasam", lat: 15.5057, lng: 80.0499 },
+    { id: "West Godavari", lat: 16.7107, lng: 81.0952 }
+  ];
+  var SOIL_TYPES = ["black", "red", "alluvial", "loam", "sandy", "clay"];
+
+  // Language code -> native label, from the strings module's language list.
+  var LANG_LABELS = {};
+  (window.KM_LANGUAGES || []).forEach(function (l) { LANG_LABELS[l.code] = l.label; });
+
+  // Cached /api/crops catalog (crop id + names), loaded once per session.
+  var cropsCatalog = null;
+
+  function ensureCropsCatalog() {
+    if (cropsCatalog) return Promise.resolve(cropsCatalog);
+    return window.KM_API.getCrops().then(function (data) {
+      cropsCatalog = (data && data.crops) || [];
+      return cropsCatalog;
+    });
+  }
+
+  function cropName(crop) {
+    if (!crop) return "";
+    return (crop.names && (crop.names[state.lang] || crop.names.en)) || crop.id;
+  }
+
+  function districtById(id) {
+    for (var i = 0; i < DISTRICTS.length; i++) {
+      if (DISTRICTS[i].id === id) return DISTRICTS[i];
     }
-    applyStrings();
-    showScreen("home");
+    return DISTRICTS[0]; // default Guntur
+  }
+
+  function buildDistrictSelect(selectEl, currentMandal) {
+    selectEl.innerHTML = "";
+    DISTRICTS.forEach(function (d) {
+      var opt = document.createElement("option");
+      opt.value = d.id;
+      opt.textContent = d.id;
+      selectEl.appendChild(opt);
+    });
+    selectEl.value = districtById(currentMandal).id;
+  }
+
+  // Generic single-select chip group (soil, language). Calls onChange(code).
+  function buildChips(containerId, groupName, codes, labelDict, selected, onChange) {
+    var container = $(containerId);
+    container.innerHTML = "";
+    codes.forEach(function (code) {
+      var id = groupName + "-" + code;
+      var wrap = document.createElement("div");
+      wrap.className = "chip";
+
+      var input = document.createElement("input");
+      input.type = "radio";
+      input.name = groupName;
+      input.id = id;
+      input.value = code;
+      input.className = "chip-input visually-hidden-input";
+      if (selected === code) input.checked = true;
+      input.addEventListener("change", function () { onChange(code); });
+
+      var label = document.createElement("label");
+      label.setAttribute("for", id);
+      label.className = "chip-label";
+      label.textContent = (labelDict && labelDict[code]) || code;
+
+      wrap.appendChild(input);
+      wrap.appendChild(label);
+      container.appendChild(wrap);
+    });
+  }
+
+  // One editable crop row: crop <select> + planting-date input + remove button.
+  function addCropRow(listEl, prefill) {
+    var row = document.createElement("div");
+    row.className = "crop-row";
+
+    var select = document.createElement("select");
+    select.className = "text-input crop-row-select";
+    select.setAttribute("aria-label", t("selectCropPlaceholder"));
+    var placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = t("selectCropPlaceholder");
+    select.appendChild(placeholder);
+    (cropsCatalog || []).forEach(function (crop) {
+      var opt = document.createElement("option");
+      opt.value = crop.id;
+      opt.textContent = cropName(crop);
+      select.appendChild(opt);
+    });
+    if (prefill && prefill.crop_id) select.value = prefill.crop_id;
+
+    var date = document.createElement("input");
+    date.type = "date";
+    date.className = "text-input crop-row-date";
+    date.setAttribute("aria-label", t("plantingDateLabel"));
+    if (prefill && prefill.planting_date) date.value = prefill.planting_date;
+
+    var remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "icon-btn crop-row-remove";
+    remove.setAttribute("aria-label", t("cropRemove"));
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "icon");
+    svg.setAttribute("aria-hidden", "true");
+    var use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", "#icon-x");
+    svg.appendChild(use);
+    remove.appendChild(svg);
+    remove.addEventListener("click", function () { row.parentNode.removeChild(row); });
+
+    row.appendChild(select);
+    row.appendChild(date);
+    row.appendChild(remove);
+    listEl.appendChild(row);
+    return row;
+  }
+
+  // Read crop rows -> { crops: [{crop_id, planting_date}], missingDate: bool }.
+  function collectCrops(listEl) {
+    var crops = [];
+    var missingDate = false;
+    listEl.querySelectorAll(".crop-row").forEach(function (row) {
+      var cropId = row.querySelector(".crop-row-select").value;
+      var date = row.querySelector(".crop-row-date").value;
+      if (!cropId) return; // an empty row is simply ignored
+      if (!date) { missingDate = true; return; }
+      crops.push({ crop_id: cropId, planting_date: date });
+    });
+    return { crops: crops, missingDate: missingDate };
+  }
+
+  // Device geolocation with the spec's silent, logged district fallback.
+  function detectGeolocation(statusEl, location, onDone) {
+    statusEl.textContent = t("locationDetecting");
+    function fallback(reason) {
+      window.KM_API.logTelemetry({
+        event: "geolocation_fallback",
+        layer: "location",
+        detail: { reason: reason },
+        fallback_used: true
+      });
+      statusEl.textContent = t("locationDenied");
+      onDone(false);
+    }
+    if (!navigator.geolocation) { fallback("unsupported"); return; }
+    navigator.geolocation.getCurrentPosition(
+      function (pos) {
+        location.lat = pos.coords.latitude;
+        location.lng = pos.coords.longitude;
+        statusEl.textContent = t("locationDeviceSet");
+        onDone(true);
+      },
+      function (err) { fallback((err && err.message) || "denied"); },
+      { timeout: 8000, maximumAge: 60000 }
+    );
+  }
+
+  // ---- profile setup wizard (new farmers) ----------------------------------------
+
+  var SETUP_STEPS = ["location", "soil", "crops"];
+  var setupState = { index: 0, soil: null, location: null };
+
+  function openSetup() {
+    setupState.index = 0;
+    setupState.soil = null;
+    // Default location is the district picker's default (Guntur) until geolocation
+    // resolves or the farmer picks a district.
+    var guntur = DISTRICTS[0];
+    setupState.location = { lat: guntur.lat, lng: guntur.lng, mandal: guntur.id };
+
+    buildDistrictSelect($("setup-district-select"), setupState.location.mandal);
+    buildChips("setup-soil-options", "setup-soil", SOIL_TYPES, dict().soils, null, function (code) {
+      setupState.soil = code;
+      $("setup-soil-hint").textContent = "";
+    });
+    $("setup-crops-list").innerHTML = "";
+    $("setup-crops-hint").textContent = "";
+    $("setup-location-status").textContent = "";
+
+    ensureCropsCatalog().then(function () {
+      addCropRow($("setup-crops-list"), null); // start with one empty row
+    }).catch(function () { /* crops step still usable once network returns */ });
+
+    showSetupStep(0);
+    showScreen("profile-setup");
+    // Try the device location immediately; silently falls back to the picker.
+    detectGeolocation($("setup-location-status"), setupState.location, function () {});
+  }
+
+  function showSetupStep(index) {
+    setupState.index = index;
+    SETUP_STEPS.forEach(function (name, i) {
+      $("setup-step-" + name).hidden = i !== index;
+    });
+    $("setup-step-label").textContent = t("setupStepOf")(index + 1, SETUP_STEPS.length);
+    var pct = Math.round(((index + 1) / SETUP_STEPS.length) * 100);
+    $("setup-progress-fill").style.width = pct + "%";
+  }
+
+  function wireSetup() {
+    $("setup-use-location-btn").addEventListener("click", function () {
+      detectGeolocation($("setup-location-status"), setupState.location, function () {});
+    });
+    $("setup-district-select").addEventListener("change", function (e) {
+      var d = districtById(e.target.value);
+      setupState.location = { lat: d.lat, lng: d.lng, mandal: d.id };
+      $("setup-location-status").textContent = t("locationDistrictSet")(d.id);
+    });
+    $("setup-location-next").addEventListener("click", function () { showSetupStep(1); });
+
+    $("setup-soil-back").addEventListener("click", function () { showSetupStep(0); });
+    $("setup-soil-next").addEventListener("click", function () {
+      if (!setupState.soil) { $("setup-soil-hint").textContent = t("soilRequired"); return; }
+      showSetupStep(2);
+    });
+
+    $("setup-add-crop").addEventListener("click", function () {
+      ensureCropsCatalog().then(function () { addCropRow($("setup-crops-list"), null); });
+    });
+    $("setup-crops-back").addEventListener("click", function () { showSetupStep(1); });
+    $("setup-finish-btn").addEventListener("click", finishSetup);
+  }
+
+  function finishSetup() {
+    var result = collectCrops($("setup-crops-list"));
+    if (result.missingDate) { $("setup-crops-hint").textContent = t("cropDateRequired"); return; }
+    if (result.crops.length === 0) { $("setup-crops-hint").textContent = t("cropsRequired"); return; }
+    $("setup-crops-hint").textContent = "";
+
+    var payload = {
+      location: setupState.location,
+      soil_type: setupState.soil,
+      current_crops: result.crops
+    };
+    var btn = $("setup-finish-btn");
+    btn.disabled = true;
+    window.KM_API.updateFarmer(state.farmerId, payload)
+      .then(function (farmer) {
+        saveSession(farmer);
+        applyStrings();
+        rebuildRecommendOptionGroups();
+        toast(t("profileSaved"));
+        showScreen("home");
+      })
+      .catch(function () { $("setup-crops-hint").textContent = t("profileSaveError"); })
+      .finally(function () { btn.disabled = false; });
+  }
+
+  // ---- profile page (editable, reachable any time) --------------------------------
+
+  var profileEdit = { location: null };
+
+  function openProfilePage() {
+    // Load the freshest farmer from the server so edits reflect stored truth;
+    // fall back to the cached session farmer if the fetch fails.
+    var cached = state.session && state.session.farmer ? state.session.farmer : {};
+    ensureCropsCatalog().catch(function () {});
+    window.KM_API.getFarmer(state.farmerId)
+      .then(function (farmer) { renderProfilePage(farmer); })
+      .catch(function () { renderProfilePage(cached); });
+    showScreen("profile");
+  }
+
+  function renderProfilePage(farmer) {
+    farmer = farmer || {};
+    var loc = farmer.location || {};
+    profileEdit.location = {
+      lat: typeof loc.lat === "number" ? loc.lat : DISTRICTS[0].lat,
+      lng: typeof loc.lng === "number" ? loc.lng : DISTRICTS[0].lng,
+      mandal: loc.mandal || DISTRICTS[0].id
+    };
+
+    buildChips("profile-lang-options", "profile-lang", ["en", "hi", "te"], LANG_LABELS,
+      farmer.lang || state.lang, function (code) {
+        setLang(code); // apply the UI language live; persisted on save
+      });
+
+    buildDistrictSelect($("profile-district-select"), profileEdit.location.mandal);
+    $("profile-location-status").textContent = "";
+
+    buildChips("profile-soil-options", "profile-soil", SOIL_TYPES, dict().soils,
+      farmer.soil_type || null, function (code) { profileEdit.soil = code; });
+    profileEdit.soil = farmer.soil_type || null;
+
+    var listEl = $("profile-crops-list");
+    listEl.innerHTML = "";
+    (farmer.current_crops || []).forEach(function (c) { addCropRow(listEl, c); });
+
+    $("profile-hint").textContent = "";
+  }
+
+  function wireProfilePage() {
+    $("open-profile-btn").addEventListener("click", openProfilePage);
+
+    $("profile-use-location-btn").addEventListener("click", function () {
+      detectGeolocation($("profile-location-status"), profileEdit.location, function () {});
+    });
+    $("profile-district-select").addEventListener("change", function (e) {
+      var d = districtById(e.target.value);
+      profileEdit.location = { lat: d.lat, lng: d.lng, mandal: d.id };
+      $("profile-location-status").textContent = t("locationDistrictSet")(d.id);
+    });
+    $("profile-add-crop").addEventListener("click", function () {
+      ensureCropsCatalog().then(function () { addCropRow($("profile-crops-list"), null); });
+    });
+
+    $("profile-form").addEventListener("submit", function (e) {
+      e.preventDefault();
+      saveProfilePage();
+    });
+    $("sign-out-btn").addEventListener("click", signOut);
+  }
+
+  function saveProfilePage() {
+    var result = collectCrops($("profile-crops-list"));
+    if (result.missingDate) { $("profile-hint").textContent = t("cropDateRequired"); return; }
+    $("profile-hint").textContent = "";
+
+    var payload = {
+      lang: state.lang,
+      location: profileEdit.location,
+      soil_type: profileEdit.soil,
+      current_crops: result.crops
+    };
+    var btn = $("profile-save-btn");
+    btn.disabled = true;
+    window.KM_API.updateFarmer(state.farmerId, payload)
+      .then(function (farmer) {
+        saveSession(farmer);
+        applyStrings();
+        rebuildRecommendOptionGroups();
+        toast(t("profileSaved"));
+        showScreen("home");
+      })
+      .catch(function () { $("profile-hint").textContent = t("profileSaveError"); })
+      .finally(function () { btn.disabled = false; });
   }
 
   function signOut() {
@@ -763,7 +1095,6 @@
 
   function wireHeader() {
     $("change-language-btn").addEventListener("click", function () { showScreen("language"); });
-    $("sign-out-btn").addEventListener("click", signOut);
   }
 
   function wireBottomNav() {
@@ -957,6 +1288,8 @@
     wireWelcome();
     wireLanguageCards();
     wireAuth();
+    wireSetup();
+    wireProfilePage();
     wireHeader();
     wireBottomNav();
     wireHome();

@@ -80,6 +80,40 @@
     );
   }
 
+  function getFarmer(farmerId) {
+    return requestJson("/api/farmers/" + encodeURIComponent(farmerId), { method: "GET" }, 15000);
+  }
+
+  function updateFarmer(farmerId, payload) {
+    return requestJson(
+      "/api/farmers/" + encodeURIComponent(farmerId),
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      },
+      15000
+    );
+  }
+
+  function getCrops() {
+    return requestJson("/api/crops", { method: "GET" }, 15000);
+  }
+
+  // Best-effort telemetry (e.g. the silent geolocation fallback). Never rejects
+  // to the caller -- a logging failure must not disrupt the farmer's flow.
+  function logTelemetry(payload) {
+    return requestJson(
+      "/api/telemetry",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      },
+      8000
+    ).catch(function () { return null; });
+  }
+
   function diagnose(farmerId, imageFile, imageNote) {
     var form = new FormData();
     form.append("farmer_id", farmerId);
@@ -136,6 +170,10 @@
     KMApiError: KMApiError,
     requestOtp: requestOtp,
     verifyOtp: verifyOtp,
+    getFarmer: getFarmer,
+    updateFarmer: updateFarmer,
+    getCrops: getCrops,
+    logTelemetry: logTelemetry,
     diagnose: diagnose,
     recommend: recommend,
     getAlerts: getAlerts,

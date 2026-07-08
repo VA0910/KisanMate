@@ -88,6 +88,22 @@
     <polyline points="16 17 21 12 16 7"/>
     <line x1="21" y1="12" x2="9" y2="12"/>
   </symbol>
+  <symbol id="icon-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+    <circle cx="12" cy="7" r="4"/>
+  </symbol>
+  <symbol id="icon-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+    <circle cx="12" cy="10" r="3"/>
+  </symbol>
+  <symbol id="icon-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="12" y1="5" x2="12" y2="19"/>
+    <line x1="5" y1="12" x2="19" y2="12"/>
+  </symbol>
+  <symbol id="icon-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18"/>
+    <line x1="6" y1="6" x2="18" y2="18"/>
+  </symbol>
 </svg>
 
 <header class="app-header">
@@ -99,8 +115,8 @@
     <button type="button" id="change-language-btn" class="icon-btn" data-i18n-aria="changeLanguage" aria-label="Change language">
       <svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg>
     </button>
-    <button type="button" id="sign-out-btn" class="icon-btn" data-i18n-aria="signOut" aria-label="Sign out" hidden>
-      <svg class="icon" aria-hidden="true"><use href="#icon-logout"></use></svg>
+    <button type="button" id="open-profile-btn" class="icon-btn" data-i18n-aria="profileTitle" aria-label="Your profile" hidden>
+      <svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg>
     </button>
   </div>
 </header>
@@ -193,17 +209,97 @@
     <button type="button" id="otp-back-btn" class="btn btn-secondary btn-block" data-i18n="changeNumber">Change number</button>
   </section>
 
-  <!-- Screen 1d: profile setup (new farmers) -->
+  <!-- Screen 1d: profile setup wizard (new farmers) -->
+  <section id="screen-profile-setup" hidden aria-labelledby="setup-heading">
+    <h1 id="setup-heading" data-i18n="setupTitle">Let's set up your farm</h1>
+    <div class="setup-progress" aria-hidden="true"><span id="setup-progress-fill"></span></div>
+    <p id="setup-step-label" class="text-muted" aria-live="polite"></p>
+
+    <!-- Step 1: location -->
+    <div id="setup-step-location" class="setup-step">
+      <h2 data-i18n="locationQuestion">Where is your farm?</h2>
+      <p class="text-muted" data-i18n="locationHelp">We use this to warn you about risks near you.</p>
+      <button type="button" id="setup-use-location-btn" class="btn btn-primary btn-block">
+        <svg class="icon" aria-hidden="true"><use href="#icon-pin"></use></svg>
+        <span data-i18n="useMyLocation">Use my location</span>
+      </button>
+      <p id="setup-location-status" class="location-status" aria-live="polite"></p>
+      <label class="field-label" for="setup-district-select" data-i18n="districtLabel">Or choose your district</label>
+      <select id="setup-district-select" class="text-input"></select>
+      <button type="button" id="setup-location-next" class="btn btn-secondary btn-block setup-next" data-i18n="next">Next</button>
+    </div>
+
+    <!-- Step 2: soil -->
+    <div id="setup-step-soil" class="setup-step" hidden>
+      <h2 data-i18n="soilQuestion">What is your soil like?</h2>
+      <div id="setup-soil-options" class="chip-group chip-group-lg"></div>
+      <p id="setup-soil-hint" class="hint-text" aria-live="polite"></p>
+      <div class="setup-nav">
+        <button type="button" id="setup-soil-back" class="btn btn-secondary" data-i18n="back">Back</button>
+        <button type="button" id="setup-soil-next" class="btn btn-primary" data-i18n="next">Next</button>
+      </div>
+    </div>
+
+    <!-- Step 3: crops -->
+    <div id="setup-step-crops" class="setup-step" hidden>
+      <h2 data-i18n="cropsQuestion">What are you growing now?</h2>
+      <p class="text-muted" data-i18n="currentCropsHelp">Add each crop and the date you planted it.</p>
+      <div id="setup-crops-list" class="crops-editor"></div>
+      <button type="button" id="setup-add-crop" class="btn btn-secondary btn-block">
+        <svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>
+        <span data-i18n="addCrop">Add a crop</span>
+      </button>
+      <p id="setup-crops-hint" class="hint-text" aria-live="polite"></p>
+      <div class="setup-nav">
+        <button type="button" id="setup-crops-back" class="btn btn-secondary" data-i18n="back">Back</button>
+        <button type="button" id="setup-finish-btn" class="btn btn-primary" data-i18n="finishSetup">Finish</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screen 1e: profile page (editable, reachable any time) -->
   <section id="screen-profile" hidden aria-labelledby="profile-heading">
-    <h1 id="profile-heading" data-i18n="profileSetupTitle">Set up your profile</h1>
-    <p data-i18n="profileSetupIntro">Welcome! Tell us your name to get started. You can add your farm details next.</p>
+    <h1 id="profile-heading" data-i18n="profileTitle">Your profile</h1>
+
     <form id="profile-form" novalidate>
-      <label class="field-label" for="profile-name-input" data-i18n="profileNameLabel">Your name</label>
-      <input type="text" id="profile-name-input" class="text-input" autocomplete="name"
-             data-i18n-placeholder="profileNamePlaceholder" placeholder="e.g. Ramesh">
+      <fieldset class="option-fieldset">
+        <legend data-i18n="languageLabel">Language</legend>
+        <div id="profile-lang-options" class="chip-group"></div>
+      </fieldset>
+
+      <fieldset class="option-fieldset">
+        <legend data-i18n="locationLabel">Location</legend>
+        <button type="button" id="profile-use-location-btn" class="btn btn-secondary btn-block">
+          <svg class="icon" aria-hidden="true"><use href="#icon-pin"></use></svg>
+          <span data-i18n="useMyLocation">Use my location</span>
+        </button>
+        <p id="profile-location-status" class="location-status" aria-live="polite"></p>
+        <label class="field-label" for="profile-district-select" data-i18n="districtLabel">District</label>
+        <select id="profile-district-select" class="text-input"></select>
+      </fieldset>
+
+      <fieldset class="option-fieldset">
+        <legend data-i18n="soilLabel">Soil type</legend>
+        <div id="profile-soil-options" class="chip-group chip-group-lg"></div>
+      </fieldset>
+
+      <fieldset class="option-fieldset">
+        <legend data-i18n="currentCropsLabel">Your crops</legend>
+        <div id="profile-crops-list" class="crops-editor"></div>
+        <button type="button" id="profile-add-crop" class="btn btn-secondary btn-block">
+          <svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg>
+          <span data-i18n="addCrop">Add a crop</span>
+        </button>
+      </fieldset>
+
       <p id="profile-hint" class="hint-text" aria-live="polite"></p>
-      <button type="submit" id="profile-continue-btn" class="btn btn-primary btn-block" data-i18n="continueBtn">Continue to home</button>
+      <button type="submit" id="profile-save-btn" class="btn btn-primary btn-block" data-i18n="saveProfile">Save changes</button>
     </form>
+
+    <button type="button" id="sign-out-btn" class="btn btn-outline btn-block">
+      <svg class="icon" aria-hidden="true"><use href="#icon-logout"></use></svg>
+      <span data-i18n="signOut">Sign out</span>
+    </button>
   </section>
 
   <!-- Screen 2: home -->
