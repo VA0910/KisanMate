@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b3d2e">
+<title>Telemetry Log – KisanMate</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%9C%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/css/log.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to main content</a>
+
+<header class="topbar">
+  <div class="topbar-titles">
+    <h1>📜 Telemetry Log</h1>
+    <p>The system explains itself — every event, and when a fallback fired.</p>
+  </div>
+  <div class="topbar-actions">
+    <a class="btn btn-link" href="/">← Farmer app</a>
+    <span id="count" class="count-pill" aria-live="polite"></span>
+    <button type="button" id="refresh-btn" class="btn">Refresh</button>
+  </div>
+</header>
+
+<main id="main">
+  <p class="auto-note" id="auto-note">Auto-refreshing every 5 seconds.</p>
+
+  <div id="loading" class="state-block">Loading telemetry…</div>
+  <div id="empty" class="state-block" hidden>No telemetry yet. Run a diagnosis or the demo scenario, then refresh.</div>
+  <div id="error" class="state-block state-error" hidden>
+    <p id="error-msg">Couldn't load telemetry.</p>
+    <button type="button" id="error-retry" class="btn">Try again</button>
+  </div>
+
+  <div id="table-wrap" class="table-wrap" hidden>
+    <table>
+      <caption id="table-caption">Most recent telemetry events, newest first.</caption>
+      <thead>
+        <tr>
+          <th scope="col">Time</th>
+          <th scope="col">Event</th>
+          <th scope="col">Layer</th>
+          <th scope="col">Fallback</th>
+          <th scope="col">Detail</th>
+        </tr>
+      </thead>
+      <tbody id="log-body"></tbody>
+    </table>
+  </div>
+</main>
+
+<script src="/static/js/log.js"></script>
+</body>
+</html>

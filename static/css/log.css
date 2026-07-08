@@ -1,0 +1,100 @@
+/* Telemetry log view — "the system explains itself".
+   Self-contained (own tokens); dense but readable; light + dark. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f4f6f5;
+  --surface: #ffffff;
+  --surface-alt: #eef2ef;
+  --text: #16201b;
+  --text-muted: #55645c;
+  --border: #d6ddd8;
+  --primary: #0b6b45;
+  --primary-strong: #085638;
+  --on-primary: #ffffff;
+  --focus-ring: #0b57d0;
+  --fallback: #8a5a00;
+  --fallback-bg: #fff3d6;
+  --normal: #0b6b45;
+  --normal-bg: #e4f2ea;
+  --radius: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1512; --surface: #17201c; --surface-alt: #1f2a24;
+    --text: #edf2ef; --text-muted: #aab8b0; --border: #2c3a32;
+    --primary: #4fd48c; --primary-strong: #74e0a4; --on-primary: #05170e;
+    --focus-ring: #8ab4f8;
+    --fallback: #ffc46b; --fallback-bg: #3a2c0c;
+    --normal: #74e0a4; --normal-bg: #0f2a1c;
+  }
+}
+
+* , *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.5 -apple-system, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
+}
+h1 { margin: 0; font-size: 1.3rem; }
+
+.skip-link {
+  position: absolute; left: -9999px; top: 0; z-index: 100;
+  background: var(--primary); color: var(--on-primary);
+  padding: 0.6rem 1rem; border-radius: 0 0 var(--radius) 0; font-weight: 600;
+}
+.skip-link:focus { left: 0; }
+:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) { * { animation-duration: 0.001ms !important; } }
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.9rem 1.25rem; background: var(--surface);
+  border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10;
+}
+.topbar-titles p { margin: 0; color: var(--text-muted); font-size: 0.85rem; }
+.topbar-actions { display: flex; align-items: center; gap: 0.75rem; }
+.count-pill {
+  background: var(--surface-alt); color: var(--text-muted);
+  border-radius: 999px; padding: 0.15rem 0.65rem; font-size: 0.85rem; font-weight: 700;
+}
+
+.btn {
+  display: inline-flex; align-items: center; gap: 0.4rem; min-height: 42px;
+  padding: 0.5rem 1rem; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 0.95rem; font-weight: 600; cursor: pointer;
+  background: var(--surface-alt); color: var(--text);
+}
+.btn-link {
+  background: transparent; border-color: transparent; color: var(--primary-strong);
+  text-decoration: none;
+}
+
+main { max-width: 1100px; margin: 0 auto; padding: 1.25rem; }
+
+.auto-note { color: var(--text-muted); font-size: 0.85rem; margin: 0 0 0.75rem; }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+caption { text-align: left; padding: 0.75rem; color: var(--text-muted); }
+th, td { text-align: left; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { position: sticky; top: 0; background: var(--surface-alt); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
+tbody tr:last-child td { border-bottom: none; }
+tr.is-fallback { background: color-mix(in srgb, var(--fallback-bg) 55%, transparent); }
+
+.evt { font-weight: 600; }
+.time { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.layer-tag {
+  display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px;
+  background: var(--surface-alt); border: 1px solid var(--border); font-size: 0.8rem;
+}
+.detail { color: var(--text-muted); font-size: 0.85rem; max-width: 42ch; }
+
+.flag {
+  display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap;
+  padding: 0.1rem 0.55rem; border-radius: 999px; font-size: 0.8rem; font-weight: 700;
+}
+.flag-fallback { background: var(--fallback-bg); color: var(--fallback); }
+.flag-normal { background: var(--normal-bg); color: var(--normal); }
+
+.state-block { padding: 2rem 1rem; text-align: center; color: var(--text-muted); }
+.state-error { color: #b3261e; }

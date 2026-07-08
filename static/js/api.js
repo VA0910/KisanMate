@@ -80,6 +80,18 @@
     return requestJson("/api/alerts/" + encodeURIComponent(farmerId), { method: "GET" }, 15000);
   }
 
+  function demoRun(lang) {
+    return requestJson(
+      "/api/demo/run",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lang: lang || "en" })
+      },
+      30000
+    );
+  }
+
   function confirm(caseId, officerVerdict) {
     return requestJson(
       "/api/confirm",
@@ -97,6 +109,7 @@
     diagnose: diagnose,
     recommend: recommend,
     getAlerts: getAlerts,
-    confirm: confirm
+    confirm: confirm,
+    demoRun: demoRun
   };
 })(window);

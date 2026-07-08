@@ -110,12 +110,21 @@
         <span class="lang-card-name">తెలుగు</span>
       </button>
     </div>
+    <button type="button" id="run-demo-btn-lang" class="demo-launch demo-launch-secondary">
+      <span class="demo-launch-icon" aria-hidden="true">▶</span>
+      <span>Run demo scenario</span>
+    </button>
   </section>
 
   <!-- Screen 2: home -->
   <section id="screen-home" hidden aria-labelledby="home-heading">
     <h1 id="home-heading" data-i18n="homeGreeting">Welcome</h1>
     <p class="tagline" data-i18n="tagline">Your farm helper</p>
+
+    <button type="button" id="run-demo-btn" class="demo-launch">
+      <span class="demo-launch-icon" aria-hidden="true">▶</span>
+      <span data-i18n="runDemo">Run demo scenario</span>
+    </button>
 
     <div class="mic-wrap">
       <button type="button" id="mic-btn" class="mic-btn" aria-pressed="false">
@@ -320,6 +329,22 @@
     <span data-i18n="navAlerts">Alerts</span>
   </button>
 </nav>
+
+<div id="demo-overlay" class="demo-overlay" hidden role="region" aria-label="Guided demo">
+  <div class="demo-bar">
+    <div class="demo-progress" aria-hidden="true"><span id="demo-progress-fill" class="demo-progress-fill"></span></div>
+    <p id="demo-step" class="demo-step"></p>
+    <p id="demo-caption" class="demo-caption" tabindex="-1" aria-live="polite"></p>
+    <div class="demo-controls">
+      <button type="button" id="demo-replay-btn" class="btn btn-secondary" hidden>
+        <svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
+        <span data-i18n="demoReplay">Replay</span>
+      </button>
+      <button type="button" id="demo-next-btn" class="btn btn-secondary" data-i18n="demoNext">Next</button>
+      <button type="button" id="demo-exit-btn" class="btn btn-primary" data-i18n="demoExit">Exit demo</button>
+    </div>
+  </div>
+</div>
 
 <div id="toast" role="status" aria-live="polite" class="toast"></div>
 

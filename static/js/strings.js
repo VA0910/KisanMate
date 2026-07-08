@@ -121,7 +121,19 @@
       zones: { delta: "Delta", coastal: "Coastal", upland: "Upland", semi_arid: "Dry area" },
       rainfall: { low: "Low rain", medium: "Medium rain", high: "High rain" },
       groundwater: { shallow: "Shallow", medium: "Medium", deep: "Deep" },
-      tiers: { watch: "Watch", warning: "Warning", alert: "Alert" }
+      tiers: { watch: "Watch", warning: "Warning", alert: "Alert" },
+
+      runDemo: "Run demo scenario",
+      demoLoading: "Starting the demo…",
+      demoError: "The demo needs the database. Please try again.",
+      demoNext: "Next",
+      demoExit: "Exit demo",
+      demoReplay: "Replay",
+      demoStepOf: function (n, total) { return "Step " + n + " of " + total; },
+      demoStep1: "Meet Ramesh, a tomato farmer near Guntur. KisanMate checks his soil, water and rainfall, and recommends the best crops for his land — tomato is a strong match.",
+      demoStep2: "Ramesh photographs a sick leaf. The camera alone leans towards early blight, but the cool, wet weather points to late blight — a contagious disease. Because they disagree, KisanMate does not guess: it escalates to a human expert.",
+      demoStep3: "An RSK officer reviews the photo and confirms late blight. The officer's verdict is final — it overrides the AI.",
+      demoStep4: "A confirmed contagious case triggers a community alert. Lakshmi, a tomato farmer 3 km away, is warned in her own language, Telugu. Venkat next door grows rice, so he is left undisturbed."
     },
 
     hi: {
@@ -226,7 +238,19 @@
       zones: { delta: "डेल्टा क्षेत्र", coastal: "तटीय क्षेत्र", upland: "ऊंचा इलाका", semi_arid: "सूखा इलाका" },
       rainfall: { low: "कम बारिश", medium: "मध्यम बारिश", high: "ज़्यादा बारिश" },
       groundwater: { shallow: "कम गहरा", medium: "मध्यम", deep: "ज़्यादा गहरा" },
-      tiers: { watch: "नज़र रखें", warning: "चेतावनी", alert: "खतरा" }
+      tiers: { watch: "नज़र रखें", warning: "चेतावनी", alert: "खतरा" },
+
+      runDemo: "डेमो चलाएं",
+      demoLoading: "डेमो शुरू हो रहा है…",
+      demoError: "डेमो के लिए डेटाबेस ज़रूरी है। कृपया फिर से कोशिश करें।",
+      demoNext: "आगे",
+      demoExit: "डेमो बंद करें",
+      demoReplay: "फिर से चलाएं",
+      demoStepOf: function (n, total) { return "चरण " + n + " / " + total; },
+      demoStep1: "मिलिए रमेश से, गुंटूर के पास एक टमाटर किसान। KisanMate उनकी मिट्टी, पानी और बारिश देखकर सबसे अच्छी फ़सलें सुझाता है — टमाटर उनकी ज़मीन के लिए बढ़िया है।",
+      demoStep2: "रमेश एक बीमार पत्ते की फोटो लेते हैं। कैमरा अगेती झुलसा की ओर झुकता है, पर ठंडा-नम मौसम पछेती झुलसा बताता है — जो एक फैलने वाली बीमारी है। मतभेद होने पर KisanMate अंदाज़ा नहीं लगाता: यह मामला विशेषज्ञ को भेज देता है।",
+      demoStep3: "एक RSK अधिकारी फोटो देखकर पछेती झुलसा की पुष्टि करते हैं। अधिकारी का फ़ैसला अंतिम है — यह AI से ऊपर है।",
+      demoStep4: "पुष्टि हुई फैलने वाली बीमारी एक सामुदायिक चेतावनी शुरू करती है। 3 किमी दूर टमाटर किसान लक्ष्मी को उनकी भाषा तेलुगु में चेतावनी मिलती है। पड़ोस के वेंकट धान उगाते हैं, इसलिए उन्हें परेशान नहीं किया जाता।"
     },
 
     te: {
@@ -331,7 +355,19 @@
       zones: { delta: "డెల్టా ప్రాంతం", coastal: "తీర ప్రాంతం", upland: "ఎత్తైన ప్రాంతం", semi_arid: "పొడి ప్రాంతం" },
       rainfall: { low: "తక్కువ వర్షం", medium: "మధ్యస్థ వర్షం", high: "ఎక్కువ వర్షం" },
       groundwater: { shallow: "తక్కువ లోతు", medium: "మధ్యస్థం", deep: "ఎక్కువ లోతు" },
-      tiers: { watch: "గమనించండి", warning: "హెచ్చరిక", alert: "ప్రమాదం" }
+      tiers: { watch: "గమనించండి", warning: "హెచ్చరిక", alert: "ప్రమాదం" },
+
+      runDemo: "డెమో చూడండి",
+      demoLoading: "డెమో మొదలవుతోంది…",
+      demoError: "డెమోకి డేటాబేస్ అవసరం. దయచేసి మళ్ళీ ప్రయత్నించండి.",
+      demoNext: "తర్వాత",
+      demoExit: "డెమో మూసివేయి",
+      demoReplay: "మళ్ళీ చూడండి",
+      demoStepOf: function (n, total) { return "అడుగు " + n + " / " + total; },
+      demoStep1: "గుంటూరు దగ్గర టమాటా రైతు రమేష్‌ను కలవండి. KisanMate అతని నేల, నీరు, వర్షపాతం చూసి మంచి పంటలను సూచిస్తుంది — టమాటా అతని భూమికి బాగా సరిపోతుంది.",
+      demoStep2: "రమేష్ ఒక వ్యాధిగ్రస్త ఆకు ఫోటో తీస్తాడు. కెమెరా త్వరిత తెగులు వైపు మొగ్గు చూపుతుంది, కానీ చల్లని తడి వాతావరణం ఆలస్య తెగులును సూచిస్తుంది — ఇది అంటువ్యాధి. విభేదం ఉన్నందున KisanMate ఊహించదు: దీన్ని నిపుణుడికి పంపుతుంది.",
+      demoStep3: "ఒక RSK అధికారి ఫోటో చూసి ఆలస్య తెగులును నిర్ధారిస్తారు. అధికారి తీర్పే అంతిమం — ఇది AIని అధిగమిస్తుంది.",
+      demoStep4: "నిర్ధారించిన అంటువ్యాధి సమాజ హెచ్చరికను ప్రేరేపిస్తుంది. 3 కి.మీ. దూరంలోని టమాటా రైతు లక్ష్మికి ఆమె భాష తెలుగులో హెచ్చరిక అందుతుంది. పక్కనే ఉన్న వెంకట్ వరి పండిస్తాడు కాబట్టి అతనికి ఇబ్బంది ఉండదు."
     }
   };
 

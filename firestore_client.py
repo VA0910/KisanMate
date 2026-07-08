@@ -61,6 +61,21 @@ def get_case(case_id: str) -> Optional[Case]:
     return Case(id=doc.id, **doc.to_dict())
 
 
+def list_cases_by_status(statuses: list[str]) -> list[Case]:
+    """Cases whose status is in `statuses` (e.g. the RSK officer's review queue).
+
+    Uses a single-field `in` filter (no composite index needed) and sorts newest-
+    first in Python so we don't require a Firestore composite index on
+    status + created_at.
+    """
+    query = get_client().collection(CASES_COLLECTION).where(
+        filter=firestore.FieldFilter("status", "in", statuses)
+    )
+    cases = [Case(id=doc.id, **doc.to_dict()) for doc in query.stream()]
+    cases.sort(key=lambda c: (c.created_at is not None, c.created_at), reverse=True)
+    return cases
+
+
 def update_case(case_id: str, updates: dict) -> None:
     get_client().collection(CASES_COLLECTION).document(case_id).update(updates)
 
@@ -85,6 +100,17 @@ def get_alert(alert_id: str) -> Optional[Alert]:
 def list_alerts_for_farmer(farmer_id: str) -> list[Alert]:
     query = get_client().collection(ALERTS_COLLECTION).where(
         filter=firestore.FieldFilter("recipient_ids", "array_contains", farmer_id)
+    )
+    return [Alert(id=doc.id, **doc.to_dict()) for doc in query.stream()]
+
+
+def list_recent_alerts(limit: int = 50) -> list[Alert]:
+    """All fired alerts, newest first (the RSK officer's fired-alerts panel)."""
+    query = (
+        get_client()
+        .collection(ALERTS_COLLECTION)
+        .order_by("created_at", direction=firestore.Query.DESCENDING)
+        .limit(limit)
     )
     return [Alert(id=doc.id, **doc.to_dict()) for doc in query.stream()]
 

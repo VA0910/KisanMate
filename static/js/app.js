@@ -36,7 +36,8 @@
     diagnosePhotoFile: null,
     lastDiagnoseCaseId: null,
     lastDiagnoseMessage: "",
-    recommendSelections: { soil: null, zone: null, rainfall: null, groundwater: null }
+    recommendSelections: { soil: null, zone: null, rainfall: null, groundwater: null },
+    demoActive: false
   };
 
   if (state.lang && !window.KM_STRINGS[state.lang]) state.lang = null;
@@ -112,26 +113,30 @@
     alerts: loadAlerts
   };
 
-  function showScreen(name) {
+  function showScreen(name, skipHook) {
     Object.keys(SECTION_IDS).forEach(function (key) {
       var el = $(SECTION_IDS[key]);
       if (el) el.hidden = key !== name;
     });
     state.screen = name;
 
+    // The bottom nav is hidden on the language picker and throughout the guided
+    // demo (the demo drives navigation itself).
     var bottomNav = $("bottom-nav");
-    if (bottomNav) bottomNav.hidden = name === "language";
+    if (bottomNav) bottomNav.hidden = name === "language" || state.demoActive;
     document.querySelectorAll(".nav-btn").forEach(function (btn) {
       if (btn.getAttribute("data-target") === name) btn.setAttribute("aria-current", "page");
       else btn.removeAttribute("aria-current");
     });
 
+    // Enter hooks (e.g. loading alerts) are skipped during the demo, which
+    // supplies its own data instead of hitting the live endpoints.
     var hook = SCREEN_ENTER_HOOKS[name];
-    if (hook) hook();
+    if (hook && !skipHook) hook();
 
     var section = $(SECTION_IDS[name]);
     var heading = section && section.querySelector("h1, h2");
-    if (heading) {
+    if (heading && !state.demoActive) {
       if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
       heading.focus();
     }
@@ -340,7 +345,7 @@
     $("dispute-thanks").hidden = true;
 
     showDiagnoseSubState("result");
-    window.KM_SPEECH.speak(data.message, localeTag());
+    if (!state.demoActive) window.KM_SPEECH.speak(data.message, localeTag());
   }
 
   function handleNotRight() {
@@ -483,7 +488,7 @@
     });
 
     showRecommendSubState("result");
-    if (recs.length > 0) {
+    if (recs.length > 0 && !state.demoActive) {
       var topName = d.crops[recs[0].crop] || recs[0].crop;
       window.KM_SPEECH.speak(t("recommendVoiceSummary")(topName), localeTag());
     }
@@ -568,7 +573,7 @@
     });
 
     showAlertsSubState("list");
-    window.KM_SPEECH.speak(t("alertsSummarySpoken")(alerts.length), localeTag());
+    if (!state.demoActive) window.KM_SPEECH.speak(t("alertsSummarySpoken")(alerts.length), localeTag());
   }
 
   function wireAlerts() {
@@ -596,6 +601,170 @@
     });
   }
 
+  // ---- guided demo (the "Run demo scenario" walkthrough) --------------------------
+
+  var DEMO_STEP_MS = 7500; // auto-advance pace; "Next" skips ahead, "Exit" stops
+  var demoState = { narratorLang: "en", steps: [], index: -1, timer: null, data: null };
+
+  function demoDict() {
+    return window.KM_STRINGS[demoState.narratorLang] || window.KM_STRINGS.en;
+  }
+  function demoStr(key) {
+    return demoDict()[key];
+  }
+
+  // Switch the app UI language during the demo WITHOUT persisting it (so the
+  // judge's real choice is untouched when the demo exits).
+  function applyDemoLang(code) {
+    state.lang = code;
+    applyStrings();
+    rebuildRecommendOptionGroups();
+  }
+
+  function startDemo() {
+    demoState.narratorLang = state.lang || "en";
+    state.demoActive = true;
+    window.KM_SPEECH.stopSpeaking();
+
+    var overlay = $("demo-overlay");
+    overlay.hidden = false;
+    document.body.classList.add("demo-running");
+    $("demo-replay-btn").hidden = true;
+    $("demo-next-btn").disabled = true;
+    $("bottom-nav").hidden = true;
+    setDemoCaption("", demoStr("demoLoading"));
+    $("demo-caption").focus();
+
+    window.KM_API.demoRun(demoState.narratorLang)
+      .then(function (data) {
+        demoState.data = data;
+        demoState.steps = buildDemoSteps(data);
+        demoState.index = -1;
+        $("demo-next-btn").disabled = false;
+        advanceDemo();
+      })
+      .catch(function () {
+        setDemoCaption("", demoStr("demoError"));
+        showDemoEndControls();
+      });
+  }
+
+  function buildDemoSteps(data) {
+    return [
+      {
+        caption: demoStr("demoStep1"),
+        run: function () {
+          applyDemoLang(demoState.narratorLang);
+          showScreen("recommend", true);
+          renderRecommendResult(data.recommend);
+        }
+      },
+      {
+        caption: demoStr("demoStep2"),
+        run: function () {
+          showScreen("diagnose", true);
+          renderDiagnoseResult(data.diagnose);
+        },
+        speakLang: demoState.narratorLang,
+        speakText: data.diagnose.message
+      },
+      {
+        caption: demoStr("demoStep3"),
+        run: function () {
+          // The RSK confirmation is narrated over the diagnosis result; the real
+          // confirm + alert already happened server-side in /api/demo/run.
+        }
+      },
+      {
+        caption: demoStr("demoStep4"),
+        run: function () {
+          applyDemoLang("te"); // Lakshmi's phone is in Telugu
+          showScreen("alerts", true);
+          renderAlerts({ alerts: data.alerts.lakshmi.alerts });
+        },
+        speakLang: "te",
+        speakText: window.KM_STRINGS.te.alertsSummarySpoken(data.alerts.lakshmi.alerts.length)
+      }
+    ];
+  }
+
+  function advanceDemo() {
+    clearTimeout(demoState.timer);
+    demoState.index += 1;
+    var step = demoState.steps[demoState.index];
+    if (!step) return;
+
+    setDemoCaption(demoStr("demoStepOf")(demoState.index + 1, demoState.steps.length), step.caption);
+    try {
+      step.run();
+    } catch (err) {
+      /* a rendering hiccup must not halt the walkthrough */
+    }
+
+    window.KM_SPEECH.stopSpeaking();
+    var tag = window.KM_LOCALE_TAGS[step.speakLang || demoState.narratorLang] || "en-IN";
+    window.KM_SPEECH.speak(step.speakText || step.caption, tag);
+
+    updateDemoProgress();
+
+    var isLast = demoState.index === demoState.steps.length - 1;
+    if (isLast) {
+      showDemoEndControls();
+    } else {
+      $("demo-next-btn").focus();
+      demoState.timer = setTimeout(advanceDemo, DEMO_STEP_MS);
+    }
+  }
+
+  function setDemoCaption(stepLabel, caption) {
+    $("demo-step").textContent = stepLabel || "";
+    $("demo-caption").textContent = caption || "";
+  }
+
+  function updateDemoProgress() {
+    var pct = Math.round(((demoState.index + 1) / demoState.steps.length) * 100);
+    $("demo-progress-fill").style.width = pct + "%";
+  }
+
+  function showDemoEndControls() {
+    clearTimeout(demoState.timer);
+    $("demo-next-btn").disabled = true;
+    $("demo-replay-btn").hidden = false;
+    $("demo-replay-btn").focus();
+  }
+
+  function replayDemo() {
+    if (!demoState.data) return;
+    window.KM_SPEECH.stopSpeaking();
+    $("demo-replay-btn").hidden = true;
+    $("demo-next-btn").disabled = false;
+    demoState.steps = buildDemoSteps(demoState.data);
+    demoState.index = -1;
+    advanceDemo();
+  }
+
+  function exitDemo() {
+    clearTimeout(demoState.timer);
+    window.KM_SPEECH.stopSpeaking();
+    state.demoActive = false;
+    $("demo-overlay").hidden = true;
+    document.body.classList.remove("demo-running");
+    applyDemoLang(demoState.narratorLang); // restore the judge's language
+    showScreen("home");
+    $("run-demo-btn").focus();
+  }
+
+  function wireDemo() {
+    $("run-demo-btn").addEventListener("click", startDemo);
+    $("run-demo-btn-lang").addEventListener("click", startDemo);
+    $("demo-next-btn").addEventListener("click", function () {
+      clearTimeout(demoState.timer);
+      advanceDemo();
+    });
+    $("demo-replay-btn").addEventListener("click", replayDemo);
+    $("demo-exit-btn").addEventListener("click", exitDemo);
+  }
+
   // ---- boot -----------------------------------------------------------------------
 
   function init() {
@@ -606,6 +775,7 @@
     wireDiagnose();
     wireRecommend();
     wireAlerts();
+    wireDemo();
 
     if (state.lang) {
       applyStrings();

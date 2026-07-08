@@ -6,9 +6,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import demo
 import firestore_client
+import services
 from engine.crop_scorer import score_crops
 from engine.fusion import fuse
+from engine.prior_table import CONTAGIOUS
 from explain import ExplainError, explain_fusion, template_message
 from models import Case, ContextLocation, Farmer, FusionContext, Soil, Telemetry, Weather
 from vision import VisionError, diagnose_image
@@ -28,6 +31,16 @@ def home():
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/rsk")
+def rsk_dashboard():
+    """The RSK officer dashboard -- the human-in-the-loop confirmation gate.
+
+    A separate, denser static page from the farmer app (officers are literate
+    desk users), served from the same FastAPI app.
+    """
+    return FileResponse(STATIC_DIR / "rsk.html")
+
+
 class ConfirmRequest(BaseModel):
     case_id: str
     officer_verdict: str
@@ -39,6 +52,10 @@ class RecommendRequest(BaseModel):
     groundwater_depth_m: float
     agro_zone: str
     seasonal_rainfall_mm: float
+
+
+class DemoRequest(BaseModel):
+    lang: str = "en"
 
 
 def _build_context(farmer: Farmer) -> FusionContext:
@@ -59,13 +76,18 @@ def _build_context(farmer: Farmer) -> FusionContext:
     )
 
 
-def _log_fallback(event: str, detail: str) -> None:
+def _log_event(event: str, layer: str, detail: str, fallback_used: bool = False) -> None:
+    """Best-effort telemetry write; a logging failure must never surface to the user."""
     try:
         firestore_client.log_telemetry(
-            Telemetry(event=event, layer="ai_content", detail={"error": detail}, fallback_used=True)
+            Telemetry(event=event, layer=layer, detail={"error": detail}, fallback_used=fallback_used)
         )
     except Exception:
-        pass  # telemetry is best-effort; a logging failure must never surface to the farmer
+        pass
+
+
+def _log_fallback(event: str, detail: str) -> None:
+    _log_event(event, "ai_content", detail, fallback_used=True)
 
 
 @app.post("/api/diagnose")
@@ -141,23 +163,143 @@ async def diagnose(
         }
 
 
+def _case_row(case: Case, farmers_by_id: dict[str, Farmer]) -> dict:
+    """Flatten a Case into the shape the RSK dashboard renders one card from."""
+    farmer = farmers_by_id.get(case.farmer_id)
+
+    top = case.fusion.top if case.fusion else None
+    candidates: list[dict] = []
+    visible_symptoms: list[str] = []
+    if case.vision and case.vision.candidates:
+        for c in case.vision.candidates:
+            candidates.append(
+                {"condition": c.condition, "confidence": c.confidence, "visible_symptoms": c.visible_symptoms}
+            )
+        # surface the symptoms for the AI's own top pick, falling back to the first candidate
+        top_candidate = next((c for c in case.vision.candidates if c.condition == top), case.vision.candidates[0])
+        visible_symptoms = top_candidate.visible_symptoms
+
+    return {
+        "case_id": case.id,
+        "farmer_id": case.farmer_id,
+        "farmer_name": farmer.name if farmer else case.farmer_id,
+        "crop": case.context.crop if case.context else (farmer.crop if farmer else None),
+        "mandal": farmer.location.mandal if farmer else None,
+        "location": {"lat": farmer.location.lat, "lng": farmer.location.lng} if farmer else None,
+        "image_note": case.image_note,
+        "status": case.status,
+        "ai_top_condition": top,
+        "ai_confidence": case.fusion.confidence if case.fusion else None,
+        "ai_decision": case.fusion.decision if case.fusion else None,
+        "image_quality": case.vision.image_quality if case.vision else None,
+        "visible_symptoms": visible_symptoms,
+        "candidates": candidates,
+        "created_at": case.created_at,
+    }
+
+
+@app.get("/api/cases")
+def list_cases():
+    """The RSK officer's review queue: every case still awaiting a human verdict."""
+    try:
+        cases = firestore_client.list_cases_by_status(["pending", "escalated"])
+        farmers_by_id = {f.id: f for f in firestore_client.list_farmers()}
+    except Exception as exc:
+        # Surface a real load failure instead of a false-empty queue: an officer
+        # must not mistake "database down" for "no cases need review". The
+        # dashboard renders 503 as a kind "couldn't load, retry" state.
+        _log_event("cases_list_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="cases temporarily unavailable")
+    return {"cases": [_case_row(case, farmers_by_id) for case in cases]}
+
+
 @app.post("/api/confirm")
 def confirm(request: ConfirmRequest):
+    """Record the officer's authoritative verdict and, if the confirmed condition
+    is contagious, fire the community alert engine for this case.
+
+    The officer's verdict overrides whatever the AI inferred (PROJECT_SPEC.md
+    layer 4): we set officer_verdict, force status to "confirmed", and adopt the
+    verdict as the case's condition before propagation, so the alert reflects the
+    human decision -- not the model's.
+    """
+    case = firestore_client.get_case(request.case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+
+    verdict = request.officer_verdict
+    contagious = CONTAGIOUS.get(verdict, False)
+    # Only a contagious verdict can fan out an alert, so only then do we need the
+    # farmer roster (keeps the non-contagious path to a single write).
+    farmers = firestore_client.list_farmers() if contagious else []
+
+    alert_summary = services.confirm_and_propagate(
+        case,
+        verdict,
+        farmers,
+        error_logger=lambda exc: _log_event("alert_propagation_error", "alert_engine", str(exc)),
+    )
+
     return {
         "case_id": request.case_id,
         "status": "confirmed",
-        "officer_verdict": request.officer_verdict,
-        "message": "placeholder response - confirmation logic not yet implemented",
+        "officer_verdict": verdict,
+        "condition": verdict,
+        "contagious": contagious,
+        "alert": alert_summary,
     }
+
+
+@app.get("/api/alerts")
+def list_all_alerts():
+    """Every fired alert, enriched with recipient identities -- the officer view.
+
+    Unlike the farmer-facing endpoint below, this is NOT anonymized: the officer
+    needs to see who was notified (PROJECT_SPEC.md keeps anonymization to the
+    farmer-facing side).
+    """
+    try:
+        alerts = firestore_client.list_recent_alerts()
+        name_by_id = {f.id: f.name for f in firestore_client.list_farmers()}
+    except Exception as exc:
+        _log_event("alerts_list_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="alerts temporarily unavailable")
+
+    rows = []
+    for a in alerts:
+        rows.append(
+            {
+                "alert_id": a.id,
+                "condition": a.condition,
+                "tier": a.tier,
+                "recipient_count": len(a.recipient_ids),
+                "recipients": [{"id": rid, "name": name_by_id.get(rid, rid)} for rid in a.recipient_ids],
+                "radius_km": a.radius_km,
+                "center": {"lat": a.center.lat, "lng": a.center.lng},
+                "source_case_id": a.source_case_id,
+                "created_at": a.created_at,
+            }
+        )
+    return {"alerts": rows}
 
 
 @app.get("/api/alerts/{farmer_id}")
 def get_alerts(farmer_id: str):
-    return {
-        "farmer_id": farmer_id,
-        "alerts": [],
-        "message": "placeholder response - alert lookup not yet implemented",
-    }
+    """Alerts received by one farmer, anonymized (no recipient identities exposed)."""
+    try:
+        alerts = firestore_client.list_alerts_for_farmer(farmer_id)
+    except Exception as exc:
+        # The farmer app renders this as a kind "couldn't load, check connection"
+        # state (never a raw error), so an honest 503 beats a false "no alerts".
+        _log_event("farmer_alerts_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="alerts temporarily unavailable")
+
+    alerts.sort(key=lambda a: (a.created_at is not None, a.created_at), reverse=True)
+    payload = [
+        {"condition": a.condition, "tier": a.tier, "radius_km": a.radius_km, "created_at": a.created_at}
+        for a in alerts
+    ]
+    return {"farmer_id": farmer_id, "alerts": payload}
 
 
 @app.post("/api/recommend")
@@ -171,6 +313,52 @@ def recommend(request: RecommendRequest):
     return {
         "farmer_id": request.farmer_id,
         "recommendations": [rec.model_dump() for rec in recommendations],
+    }
+
+
+@app.post("/api/demo/run")
+def demo_run(request: DemoRequest):
+    """Run the deterministic hero scenario end to end on the seeded data.
+
+    One call seeds the demo farmers, produces a recommendation, diagnoses +
+    escalates a late-blight case, confirms it as an RSK officer, and fires the
+    community alert -- returning the per-step data the farmer app replays with
+    narration. Deterministic and Gemini-free, so an unattended judge gets the
+    same story every time.
+    """
+    try:
+        return demo.run_demo_scenario(lang=request.lang)
+    except Exception as exc:
+        _log_event("demo_error", "demo", str(exc))
+        raise HTTPException(status_code=503, detail="demo could not run right now")
+
+
+@app.get("/log")
+def log_view():
+    """The telemetry log view -- "the system explains itself" (a judge sees
+    fallbacks fire invisibly and gracefully)."""
+    return FileResponse(STATIC_DIR / "log.html")
+
+
+@app.get("/api/telemetry")
+def get_telemetry(limit: int = 50):
+    """Recent telemetry entries, newest first, for the /log table."""
+    try:
+        entries = firestore_client.list_recent_telemetry(limit)
+    except Exception as exc:
+        _log_event("telemetry_list_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="telemetry temporarily unavailable")
+    return {
+        "entries": [
+            {
+                "event": e.event,
+                "layer": e.layer,
+                "fallback_used": e.fallback_used,
+                "detail": e.detail,
+                "created_at": e.created_at,
+            }
+            for e in entries
+        ]
     }
 
 
