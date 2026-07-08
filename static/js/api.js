@@ -10,9 +10,10 @@
 (function (global) {
   "use strict";
 
-  function KMApiError(kind, detail) {
+  function KMApiError(kind, detail, status) {
     this.name = "KMApiError";
     this.kind = kind; // "timeout" | "offline" | "server"
+    this.status = status || null; // HTTP status when kind === "server"
     this.message = detail || kind;
   }
   KMApiError.prototype = Object.create(Error.prototype);
@@ -38,7 +39,7 @@
       function (response) {
         clearTimeout(timer);
         if (!response.ok) {
-          throw new KMApiError("server", "HTTP " + response.status);
+          throw new KMApiError("server", "HTTP " + response.status, response.status);
         }
         return response.json().catch(function () {
           throw new KMApiError("server", "invalid JSON");
@@ -98,6 +99,14 @@
 
   function getCrops() {
     return requestJson("/api/crops", { method: "GET" }, 15000);
+  }
+
+  function searchPlaces(query) {
+    return requestJson(
+      "/api/places?q=" + encodeURIComponent(query),
+      { method: "GET" },
+      10000
+    );
   }
 
   // Best-effort telemetry (e.g. the silent geolocation fallback). Never rejects
@@ -173,6 +182,7 @@
     getFarmer: getFarmer,
     updateFarmer: updateFarmer,
     getCrops: getCrops,
+    searchPlaces: searchPlaces,
     logTelemetry: logTelemetry,
     diagnose: diagnose,
     recommend: recommend,

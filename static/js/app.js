@@ -503,6 +503,10 @@
 
   function renderRecommendResult(data) {
     var d = dict();
+    // Prefer the server's personalized note (references the farmer's soil and
+    // current growth stage); fall back to the generic intro string.
+    var intro = $("recommend-intro");
+    if (intro) intro.textContent = (data && data.context_note) ? data.context_note : t("recommendResultIntro");
     var list = $("recommend-list");
     list.innerHTML = "";
     var recs = data.recommendations || [];
@@ -538,7 +542,10 @@
       renderSegments(segWrap, rec.score, 4);
       li.appendChild(segWrap);
 
-      var reasonText = d.reasons[rec.reason_code];
+      // Prefer the server-provided reason text (Gemini, or the deterministic
+      // reason that already names the farmer's soil); fall back to the legacy
+      // reason-code lookup for older responses.
+      var reasonText = rec.reason || d.reasons[rec.reason_code];
       if (reasonText) {
         var reason = document.createElement("p");
         reason.className = "crop-reason";
@@ -737,18 +744,103 @@
 
   // ---- profile: shared building blocks (used by setup wizard + profile page) -----
 
-  // District fallback for the location layer (PROJECT_SPEC.md), defaulting to
-  // Guntur. Each carries a representative lat/lng so downstream distance/alert
-  // math still works when device geolocation isn't available.
-  var DISTRICTS = [
-    { id: "Guntur", lat: 16.3067, lng: 80.4365 },
-    { id: "Bapatla", lat: 15.9044, lng: 80.4672 },
-    { id: "Palnadu", lat: 16.2350, lng: 80.0490 },
-    { id: "Krishna", lat: 16.1875, lng: 81.1389 },
-    { id: "NTR (Vijayawada)", lat: 16.5062, lng: 80.6480 },
-    { id: "Prakasam", lat: 15.5057, lng: 80.0499 },
-    { id: "West Godavari", lat: 16.7107, lng: 81.0952 }
-  ];
+  // Location fallback default (PROJECT_SPEC.md: district picker defaults to Guntur).
+  var DEFAULT_DISTRICT_NAME = "Guntur";
+  var DEFAULT_COORDS = { lat: 16.3067, lng: 80.4365 };
+
+  // Live place-search type-ahead: as the farmer types a place name, query
+  // /api/places (OSM geocoder) and show matches; selecting one sets the precise
+  // coordinates as their location. `getLocation` returns the location object to
+  // mutate (it is re-created on each screen open, so we read it lazily).
+  function attachPlaceSearch(inputEl, suggestionsEl, getLocation, statusEl) {
+    var timer = null;
+    var results = [];
+    var activeIndex = -1;
+
+    function close() {
+      suggestionsEl.hidden = true;
+      suggestionsEl.innerHTML = "";
+      inputEl.setAttribute("aria-expanded", "false");
+      inputEl.removeAttribute("aria-activedescendant");
+      results = [];
+      activeIndex = -1;
+    }
+
+    function showHint(text) {
+      suggestionsEl.innerHTML = "";
+      var li = document.createElement("li");
+      li.className = "place-hint";
+      li.textContent = text;
+      suggestionsEl.appendChild(li);
+      suggestionsEl.hidden = false;
+    }
+
+    function choose(place) {
+      var loc = getLocation();
+      loc.mandal = place.name;
+      loc.lat = place.lat;
+      loc.lng = place.lng;
+      inputEl.value = place.name;
+      if (statusEl) statusEl.textContent = t("locationDistrictSet")(place.name);
+      close();
+    }
+
+    function highlight(idx) {
+      var items = suggestionsEl.querySelectorAll(".place-option");
+      items.forEach(function (el, i) { el.classList.toggle("place-option-active", i === idx); });
+      if (idx >= 0 && items[idx]) inputEl.setAttribute("aria-activedescendant", items[idx].id);
+    }
+
+    function render(places) {
+      results = places;
+      activeIndex = -1;
+      suggestionsEl.innerHTML = "";
+      places.forEach(function (p, i) {
+        var li = document.createElement("li");
+        li.className = "place-option";
+        li.id = suggestionsEl.id + "-opt-" + i;
+        li.setAttribute("role", "option");
+        li.textContent = p.name;
+        // mousedown (not click) so the selection lands before the input blurs.
+        li.addEventListener("mousedown", function (e) { e.preventDefault(); choose(p); });
+        suggestionsEl.appendChild(li);
+      });
+      suggestionsEl.hidden = false;
+      inputEl.setAttribute("aria-expanded", "true");
+    }
+
+    function search() {
+      var q = inputEl.value.trim();
+      getLocation().mandal = q; // keep the typed name even if nothing is selected
+      if (q.length < 3) { close(); return; }
+      showHint(t("searchingPlaces"));
+      window.KM_API.searchPlaces(q).then(function (data) {
+        if (inputEl.value.trim() !== q) return; // a newer keystroke superseded this
+        var places = (data && data.places) || [];
+        if (!places.length) { showHint(t("noPlaceMatches")); return; }
+        render(places);
+      }).catch(function () { close(); });
+    }
+
+    inputEl.addEventListener("input", function () {
+      clearTimeout(timer);
+      timer = setTimeout(search, 350);
+    });
+    inputEl.addEventListener("keydown", function (e) {
+      var items = suggestionsEl.querySelectorAll(".place-option");
+      if (e.key === "ArrowDown" && items.length) {
+        e.preventDefault(); activeIndex = Math.min(activeIndex + 1, items.length - 1); highlight(activeIndex);
+      } else if (e.key === "ArrowUp" && items.length) {
+        e.preventDefault(); activeIndex = Math.max(activeIndex - 1, 0); highlight(activeIndex);
+      } else if (e.key === "Enter") {
+        if (activeIndex >= 0 && results[activeIndex]) { e.preventDefault(); choose(results[activeIndex]); }
+      } else if (e.key === "Escape") {
+        close();
+      }
+    });
+    inputEl.addEventListener("blur", function () { setTimeout(close, 150); });
+  }
+
   var SOIL_TYPES = ["black", "red", "alluvial", "loam", "sandy", "clay"];
 
   // Language code -> native label, from the strings module's language list.
@@ -769,24 +861,6 @@
   function cropName(crop) {
     if (!crop) return "";
     return (crop.names && (crop.names[state.lang] || crop.names.en)) || crop.id;
-  }
-
-  function districtById(id) {
-    for (var i = 0; i < DISTRICTS.length; i++) {
-      if (DISTRICTS[i].id === id) return DISTRICTS[i];
-    }
-    return DISTRICTS[0]; // default Guntur
-  }
-
-  function buildDistrictSelect(selectEl, currentMandal) {
-    selectEl.innerHTML = "";
-    DISTRICTS.forEach(function (d) {
-      var opt = document.createElement("option");
-      opt.value = d.id;
-      opt.textContent = d.id;
-      selectEl.appendChild(opt);
-    });
-    selectEl.value = districtById(currentMandal).id;
   }
 
   // Generic single-select chip group (soil, language). Calls onChange(code).
@@ -912,12 +986,14 @@
   function openSetup() {
     setupState.index = 0;
     setupState.soil = null;
-    // Default location is the district picker's default (Guntur) until geolocation
-    // resolves or the farmer picks a district.
-    var guntur = DISTRICTS[0];
-    setupState.location = { lat: guntur.lat, lng: guntur.lng, mandal: guntur.id };
+    // Default location is Guntur until geolocation resolves or the farmer picks
+    // or types a district.
+    setupState.location = {
+      lat: DEFAULT_COORDS.lat, lng: DEFAULT_COORDS.lng, mandal: DEFAULT_DISTRICT_NAME
+    };
 
-    buildDistrictSelect($("setup-district-select"), setupState.location.mandal);
+    $("setup-place-input").value = setupState.location.mandal;
+    $("setup-place-suggestions").hidden = true;
     buildChips("setup-soil-options", "setup-soil", SOIL_TYPES, dict().soils, null, function (code) {
       setupState.soil = code;
       $("setup-soil-hint").textContent = "";
@@ -950,12 +1026,16 @@
     $("setup-use-location-btn").addEventListener("click", function () {
       detectGeolocation($("setup-location-status"), setupState.location, function () {});
     });
-    $("setup-district-select").addEventListener("change", function (e) {
-      var d = districtById(e.target.value);
-      setupState.location = { lat: d.lat, lng: d.lng, mandal: d.id };
-      $("setup-location-status").textContent = t("locationDistrictSet")(d.id);
+    attachPlaceSearch(
+      $("setup-place-input"), $("setup-place-suggestions"),
+      function () { return setupState.location; }, $("setup-location-status")
+    );
+    $("setup-location-next").addEventListener("click", function () {
+      // Keep whatever place text is in the box (coords were set on selection).
+      var typed = $("setup-place-input").value.trim();
+      if (typed) setupState.location.mandal = typed;
+      showSetupStep(1);
     });
-    $("setup-location-next").addEventListener("click", function () { showSetupStep(1); });
 
     $("setup-soil-back").addEventListener("click", function () { showSetupStep(0); });
     $("setup-soil-next").addEventListener("click", function () {
@@ -991,32 +1071,50 @@
         toast(t("profileSaved"));
         showScreen("home");
       })
-      .catch(function () { $("setup-crops-hint").textContent = t("profileSaveError"); })
+      .catch(function (err) {
+        if (isStaleSession(err)) { handleStaleSession(); return; }
+        $("setup-crops-hint").textContent = t("profileSaveError");
+      })
       .finally(function () { btn.disabled = false; });
   }
 
   // ---- profile page (editable, reachable any time) --------------------------------
 
-  var profileEdit = { location: null };
+  var profileEdit = { location: null, soil: null };
+
+  // A 404 from a farmer endpoint means the signed-in session points to a document
+  // that no longer exists (e.g. it was removed). Treat the session as stale.
+  function isStaleSession(err) {
+    return !!(err && err.status === 404);
+  }
+
+  function handleStaleSession() {
+    clearSession();
+    updateHeaderButtons();
+    toast(t("sessionExpired"));
+    showScreen("welcome");
+  }
 
   function openProfilePage() {
-    // Load the freshest farmer from the server so edits reflect stored truth;
-    // fall back to the cached session farmer if the fetch fails.
-    var cached = state.session && state.session.farmer ? state.session.farmer : {};
     ensureCropsCatalog().catch(function () {});
+    // Load the freshest farmer from the server so edits reflect stored truth.
+    var cached = state.session && state.session.farmer ? state.session.farmer : {};
     window.KM_API.getFarmer(state.farmerId)
-      .then(function (farmer) { renderProfilePage(farmer); })
-      .catch(function () { renderProfilePage(cached); });
-    showScreen("profile");
+      .then(function (farmer) { renderProfilePage(farmer); showScreen("profile"); })
+      .catch(function (err) {
+        if (isStaleSession(err)) { handleStaleSession(); return; }
+        renderProfilePage(cached);
+        showScreen("profile");
+      });
   }
 
   function renderProfilePage(farmer) {
     farmer = farmer || {};
     var loc = farmer.location || {};
     profileEdit.location = {
-      lat: typeof loc.lat === "number" ? loc.lat : DISTRICTS[0].lat,
-      lng: typeof loc.lng === "number" ? loc.lng : DISTRICTS[0].lng,
-      mandal: loc.mandal || DISTRICTS[0].id
+      lat: typeof loc.lat === "number" ? loc.lat : DEFAULT_COORDS.lat,
+      lng: typeof loc.lng === "number" ? loc.lng : DEFAULT_COORDS.lng,
+      mandal: loc.mandal || DEFAULT_DISTRICT_NAME
     };
 
     buildChips("profile-lang-options", "profile-lang", ["en", "hi", "te"], LANG_LABELS,
@@ -1024,7 +1122,8 @@
         setLang(code); // apply the UI language live; persisted on save
       });
 
-    buildDistrictSelect($("profile-district-select"), profileEdit.location.mandal);
+    $("profile-place-input").value = profileEdit.location.mandal;
+    $("profile-place-suggestions").hidden = true;
     $("profile-location-status").textContent = "";
 
     buildChips("profile-soil-options", "profile-soil", SOIL_TYPES, dict().soils,
@@ -1044,11 +1143,10 @@
     $("profile-use-location-btn").addEventListener("click", function () {
       detectGeolocation($("profile-location-status"), profileEdit.location, function () {});
     });
-    $("profile-district-select").addEventListener("change", function (e) {
-      var d = districtById(e.target.value);
-      profileEdit.location = { lat: d.lat, lng: d.lng, mandal: d.id };
-      $("profile-location-status").textContent = t("locationDistrictSet")(d.id);
-    });
+    attachPlaceSearch(
+      $("profile-place-input"), $("profile-place-suggestions"),
+      function () { return profileEdit.location; }, $("profile-location-status")
+    );
     $("profile-add-crop").addEventListener("click", function () {
       ensureCropsCatalog().then(function () { addCropRow($("profile-crops-list"), null); });
     });
@@ -1061,6 +1159,10 @@
   }
 
   function saveProfilePage() {
+    // Keep any place text still in the box (coords were set on selection).
+    var typed = $("profile-place-input").value.trim();
+    if (typed) profileEdit.location.mandal = typed;
+
     var result = collectCrops($("profile-crops-list"));
     if (result.missingDate) { $("profile-hint").textContent = t("cropDateRequired"); return; }
     $("profile-hint").textContent = "";
@@ -1081,7 +1183,10 @@
         toast(t("profileSaved"));
         showScreen("home");
       })
-      .catch(function () { $("profile-hint").textContent = t("profileSaveError"); })
+      .catch(function (err) {
+        if (isStaleSession(err)) { handleStaleSession(); return; }
+        $("profile-hint").textContent = t("profileSaveError");
+      })
       .finally(function () { btn.disabled = false; });
   }
 

@@ -1,4 +1,7 @@
+import json
 import random
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -13,12 +16,14 @@ import services
 import weather as weather_source
 from engine.crop_recommender import current_season, rank_crops
 from engine.fusion import fuse
+from engine.growth import compute_stage
 from engine.prior_table import CONTAGIOUS
 from explain import (
     ExplainError,
     RecommendExplainError,
     explain_fusion,
     explain_recommendations,
+    recommendation_note,
     template_message,
 )
 from models import (
@@ -137,27 +142,63 @@ class TelemetryIn(BaseModel):
     fallback_used: bool = False
 
 
-def _build_context(farmer: Farmer) -> FusionContext:
-    """Assemble the fusion context for a farmer, degrading gracefully per source.
+def _primary_crop(farmer: Farmer) -> tuple[Optional[str], Optional[str]]:
+    """The farmer's current crop and its planting date (crop_id, planting_date).
 
-    Weather is sourced through weather.get_weather(); if it's unavailable (no live
-    provider, or a failed/timed-out fetch) we log a telemetry fallback and drop to
-    zone-normal defaults, so the prior table still runs on honest degraded data
-    instead of surfacing an error. Soil/nearby are still marked degraded pending
-    their own live sourcing.
+    Prefers the first entry in the profile's current_crops (which carries the
+    planting date needed for the growth stage); falls back to the legacy single
+    `crop` field for farmers who predate profile setup.
     """
+    if farmer.current_crops:
+        first = farmer.current_crops[0]
+        return first.crop_id, first.planting_date
+    return (farmer.crop or None), None
+
+
+def build_context(farmer: Farmer, crop_doc=None) -> FusionContext:
+    """Assemble the fusion `context` from the signed-in farmer's profile.
+
+    Personalizes every AI call (PROJECT_SPEC.md "Context into Gemini"): crop and
+    location come straight from the profile; soil carries the declared soil type;
+    and the current growth stage is computed deterministically from the crop's
+    planting_date and the crop DB's cycle_days/growth_stages (engine.growth).
+
+    Degrades gracefully per source (spec layer 3): weather falls back to
+    zone-normal when no live provider is wired, and a missing crop doc or planting
+    date simply leaves growth_stage unset -- the deterministic fusion still runs.
+    """
+    crop_id, planting_date = _primary_crop(farmer)
+
     try:
         weather_reading = weather_source.get_weather(farmer.location.lat, farmer.location.lng)
     except Exception as exc:
         _log_event("weather_fallback", "context_data", str(exc), fallback_used=True)
         weather_reading = weather_source.zone_normal_weather()
 
+    # Resolve the crop DB doc (for cycle_days/growth_stages) unless one was passed.
+    if crop_doc is None and crop_id:
+        try:
+            crop_doc = firestore_client.get_crop(crop_id)
+        except Exception as exc:
+            _log_event("crop_lookup_fallback", "context_data", str(exc), fallback_used=True)
+            crop_doc = None
+
+    stage = None
+    if planting_date and crop_doc is not None:
+        stage = compute_stage(planting_date, crop_doc.cycle_days, crop_doc.growth_stages)
+
     return FusionContext(
-        crop=farmer.crop,
-        location=ContextLocation(lat=farmer.location.lat, lng=farmer.location.lng, resolution="village"),
+        crop=crop_id or farmer.crop,
+        location=ContextLocation(
+            lat=farmer.location.lat, lng=farmer.location.lng, resolution="village"
+        ),
         weather=weather_reading,
-        soil=Soil(nitrogen="unknown", source="unknown"),
+        # No live soil card is wired, so nitrogen stays unknown; the declared soil
+        # type from the profile rides along for personalization.
+        soil=Soil(nitrogen="unknown", source="unknown", type=farmer.soil_type),
         nearby_confirmed=[],
+        growth_stage=stage["name"] if stage else None,
+        crop_day=stage["day"] if stage else None,
     )
 
 
@@ -292,6 +333,62 @@ def patch_farmer(farmer_id: str, request: UpdateFarmerRequest):
     return updated.model_dump()
 
 
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+
+
+def _geocode_places(query: str) -> list[dict]:
+    """Look up places by name via OpenStreetMap Nominatim (India), returning
+    [{name, lat, lng}]. Isolated so it can be exercised/mocked in tests."""
+    params = urllib.parse.urlencode(
+        {"q": query, "format": "jsonv2", "countrycodes": "in", "limit": 6, "addressdetails": 1}
+    )
+    req = urllib.request.Request(
+        f"{NOMINATIM_URL}?{params}",
+        headers={"User-Agent": "KisanMate/1.0 (agriculture assistant demo)"},
+    )
+    with urllib.request.urlopen(req, timeout=6) as resp:
+        data = json.load(resp)
+
+    places = []
+    for item in data:
+        try:
+            lat, lng = float(item["lat"]), float(item["lon"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        addr = item.get("address", {})
+        locality = (
+            item.get("name")
+            or addr.get("city")
+            or addr.get("town")
+            or addr.get("village")
+            or addr.get("suburb")
+            or addr.get("county")
+            or ""
+        )
+        region = addr.get("state") or addr.get("state_district") or ""
+        label = ", ".join(p for p in (locality, region) if p) or item.get("display_name", "")
+        places.append({"name": label, "lat": lat, "lng": lng})
+    return places
+
+
+@app.get("/api/places")
+def search_places(q: str = ""):
+    """Live place search for the location picker: the farmer types a place name and
+    picks a real match, whose coordinates become their location.
+
+    Proxied through the backend so we can identify politely to the geocoder and
+    keep the frontend simple. Degrades silently to an empty list (never an error)
+    so the picker just shows "no matches" if the lookup is unavailable."""
+    query = (q or "").strip()
+    if len(query) < 3:
+        return {"places": []}
+    try:
+        return {"places": _geocode_places(query)}
+    except Exception as exc:
+        _log_event("place_search_error", "location", str(exc))
+        return {"places": []}
+
+
 @app.post("/api/telemetry")
 def post_telemetry(entry: TelemetryIn):
     """Frontend-originated telemetry (e.g. the silent geolocation fallback).
@@ -339,7 +436,7 @@ async def diagnose(
 
     try:
         image_bytes = await image.read()
-        context = _build_context(farmer)
+        context = build_context(farmer)
 
         vision_result = None
         try:
@@ -350,10 +447,10 @@ async def diagnose(
         fusion_result = fuse(vision_result, context)
 
         try:
-            message = explain_fusion(fusion_result, farmer.lang)
+            message = explain_fusion(fusion_result, farmer.lang, context)
         except ExplainError as exc:
             _log_fallback("explain_fallback", str(exc))
-            message = template_message(fusion_result.decision, farmer.lang)
+            message = template_message(fusion_result.decision, farmer.lang, context)
 
         case = Case(
             farmer_id=farmer_id,
@@ -567,28 +664,42 @@ def recommend(request: RecommendRequest):
     soil_type + current season + region). Gemini only rewrites the reason text on
     top; if it fails we log a fallback and keep the deterministic reasons, so the
     farmer always gets a useful, grounded answer (PROJECT_SPEC.md layers 1-3).
+
+    Personalized from the profile: soil/region default to the farmer's own when
+    the request omits them, and a `context_note` (plus the Gemini reasons) names
+    the farmer's soil and current growth stage.
     """
     season = request.season or current_season()
+
+    # Load the farmer first so the recommendation can personalize from the profile.
+    try:
+        farmer = firestore_client.get_farmer(request.farmer_id)
+    except Exception:
+        farmer = None
+    lang = farmer.lang if farmer else "en"
+
+    soil_type = request.resolved_soil() or (farmer.soil_type if farmer else None)
+    region = request.resolved_region()
+
     try:
         crops = firestore_client.list_crops()
-        recommendations = rank_crops(
-            crops,
-            soil_type=request.resolved_soil(),
-            season=season,
-            region=request.resolved_region(),
-        )
+        recommendations = rank_crops(crops, soil_type=soil_type, season=season, region=region)
     except Exception as exc:
         _log_event("recommend_error", "deterministic", str(exc))
         raise HTTPException(status_code=503, detail="recommendation temporarily unavailable")
 
+    # Build the farmer's field context (soil + current crop growth stage) to
+    # personalize both the note and the Gemini reasons.
+    context = None
+    if farmer is not None:
+        try:
+            context = build_context(farmer)
+        except Exception as exc:
+            _log_event("recommend_context_fallback", "context_data", str(exc), fallback_used=True)
+
     # AI content layer: warm reason text on top of the deterministic reasons.
     try:
-        farmer = firestore_client.get_farmer(request.farmer_id)
-        lang = farmer.lang if farmer else "en"
-    except Exception:
-        lang = "en"
-    try:
-        reasons = explain_recommendations(recommendations, lang)
+        reasons = explain_recommendations(recommendations, lang, context)
         for rec in recommendations:
             if rec.crop in reasons and reasons[rec.crop].strip():
                 rec.reason = reasons[rec.crop].strip()
@@ -598,6 +709,7 @@ def recommend(request: RecommendRequest):
     return {
         "farmer_id": request.farmer_id,
         "season": season,
+        "context_note": recommendation_note(context, lang),
         "recommendations": [rec.model_dump() for rec in recommendations],
     }
 

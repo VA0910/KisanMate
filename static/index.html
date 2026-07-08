@@ -224,8 +224,13 @@
         <span data-i18n="useMyLocation">Use my location</span>
       </button>
       <p id="setup-location-status" class="location-status" aria-live="polite"></p>
-      <label class="field-label" for="setup-district-select" data-i18n="districtLabel">Or choose your district</label>
-      <select id="setup-district-select" class="text-input"></select>
+      <label class="field-label" for="setup-place-input" data-i18n="districtLabel">Or type your village / town / district</label>
+      <div class="place-search">
+        <input id="setup-place-input" class="text-input" type="text" autocomplete="off"
+               role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="setup-place-suggestions"
+               data-i18n-placeholder="districtPlaceholder" placeholder="Type a place, e.g. Kanpur">
+        <ul id="setup-place-suggestions" class="place-suggestions" role="listbox" hidden></ul>
+      </div>
       <button type="button" id="setup-location-next" class="btn btn-secondary btn-block setup-next" data-i18n="next">Next</button>
     </div>
 
@@ -274,8 +279,13 @@
           <span data-i18n="useMyLocation">Use my location</span>
         </button>
         <p id="profile-location-status" class="location-status" aria-live="polite"></p>
-        <label class="field-label" for="profile-district-select" data-i18n="districtLabel">District</label>
-        <select id="profile-district-select" class="text-input"></select>
+        <label class="field-label" for="profile-place-input" data-i18n="districtLabel">Or type your village / town / district</label>
+        <div class="place-search">
+          <input id="profile-place-input" class="text-input" type="text" autocomplete="off"
+                 role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="profile-place-suggestions"
+                 data-i18n-placeholder="districtPlaceholder" placeholder="Type a place, e.g. Kanpur">
+          <ul id="profile-place-suggestions" class="place-suggestions" role="listbox" hidden></ul>
+        </div>
       </fieldset>
 
       <fieldset class="option-fieldset">
@@ -452,7 +462,7 @@
       </div>
 
       <div id="recommend-result" hidden>
-        <p data-i18n="recommendResultIntro">Here are good crops for your field</p>
+        <p id="recommend-intro" data-i18n="recommendResultIntro">Here are good crops for your field</p>
         <ol id="recommend-list" class="crop-list"></ol>
         <button type="button" id="recommend-start-over-btn" class="btn btn-secondary btn-block">
           <svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>

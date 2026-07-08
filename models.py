@@ -55,6 +55,9 @@ class Weather(BaseModel):
 class Soil(BaseModel):
     nitrogen: Literal["low", "adequate", "unknown"]
     source: Literal["card", "cache", "unknown"]
+    # The farmer's declared soil type (e.g. "black"); additive to the contract,
+    # carried so the AI layer can personalize ("for your black soil...").
+    type: Optional[str] = None
 
 
 class NearbyConfirmed(BaseModel):
@@ -69,6 +72,11 @@ class FusionContext(BaseModel):
     weather: Weather
     soil: Soil
     nearby_confirmed: list[NearbyConfirmed] = Field(default_factory=list)
+    # Current growth stage computed deterministically from planting_date + the
+    # crop DB (engine.growth). Additive to the contract; the deterministic fusion
+    # ignores it, but it personalizes the AI layer ("...at the flowering stage").
+    growth_stage: Optional[str] = None
+    crop_day: Optional[int] = None
 
 
 class FusionInput(BaseModel):

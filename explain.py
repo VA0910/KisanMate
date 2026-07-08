@@ -10,9 +10,101 @@ import json
 from google import genai
 
 from config import GEMINI_API_KEY, GEMINI_MODEL
-from models import CropRecommendation, FusionOutput
+from models import CropRecommendation, FusionContext, FusionOutput
 
 LANGUAGE_NAMES = {"en": "English", "hi": "Hindi", "te": "Telugu"}
+
+# Localized soil-type labels, so even the deterministic fallbacks (no Gemini)
+# still address the farmer's own soil rather than a generic default.
+SOIL_LABELS = {
+    "en": {"black": "black", "red": "red", "alluvial": "alluvial", "loam": "loam",
+           "loamy": "loam", "sandy": "sandy", "clay": "clay"},
+    "hi": {"black": "काली", "red": "लाल", "alluvial": "जलोढ़", "loam": "दोमट",
+           "loamy": "दोमट", "sandy": "रेतीली", "clay": "चिकनी"},
+    "te": {"black": "నల్ల", "red": "ఎర్ర", "alluvial": "ఒండ్రు", "loam": "గరప",
+           "loamy": "గరప", "sandy": "ఇసుక", "clay": "బంకమట్టి"},
+}
+
+
+def _soil_label(soil_type, language):
+    if not soil_type:
+        return None
+    return SOIL_LABELS.get(language, SOIL_LABELS["en"]).get(soil_type, soil_type)
+
+
+def _stage_label(stage):
+    return stage.replace("_", " ") if stage else None
+
+
+def _context_facts(context):
+    """A compact dict of the farmer's field context for a Gemini prompt."""
+    if context is None:
+        return None
+    facts = {}
+    if getattr(context, "crop", None):
+        facts["crop"] = context.crop
+    soil_type = getattr(getattr(context, "soil", None), "type", None)
+    if soil_type:
+        facts["soil_type"] = soil_type
+    if getattr(context, "growth_stage", None):
+        facts["growth_stage"] = _stage_label(context.growth_stage)
+    if getattr(context, "crop_day", None) is not None:
+        facts["days_since_planting"] = context.crop_day
+    return facts or None
+
+
+def personalize_prefix(context, language):
+    """A localized lead-in that names the farmer's soil and growth stage.
+
+    Used verbatim on the deterministic fallback path so a diagnosis still reads
+    "For your black soil at the flowering stage — ..." even when Gemini is down.
+    Returns "" when there's nothing profile-specific to say.
+    """
+    if context is None:
+        return ""
+    soil = _soil_label(getattr(getattr(context, "soil", None), "type", None), language)
+    stage = _stage_label(getattr(context, "growth_stage", None))
+    if not soil and not stage:
+        return ""
+    if language == "hi":
+        if soil and stage:
+            return f"आपकी {soil} मिट्टी के लिए, {stage} अवस्था में — "
+        return f"आपकी {soil} मिट्टी के लिए — " if soil else f"{stage} अवस्था में — "
+    if language == "te":
+        if soil and stage:
+            return f"మీ {soil} నేలకు, {stage} దశలో — "
+        return f"మీ {soil} నేలకు — " if soil else f"{stage} దశలో — "
+    # English (and default)
+    if soil and stage:
+        return f"For your {soil} soil at the {stage} stage — "
+    return f"For your {soil} soil — " if soil else f"At the {stage} stage — "
+
+
+def recommendation_note(context, language):
+    """A localized one-line note for the recommendation result that references the
+    farmer's soil and (if known) their current crop's growth stage."""
+    if context is None:
+        return ""
+    soil = _soil_label(getattr(getattr(context, "soil", None), "type", None), language)
+    stage = _stage_label(getattr(context, "growth_stage", None))
+    crop = getattr(context, "crop", None)
+    if language == "hi":
+        note = ""
+        if crop and stage:
+            note += f"आपकी {crop} फ़सल अभी {stage} अवस्था में है। "
+        note += f"ये आपकी {soil} मिट्टी के लिए अच्छी हैं:" if soil else "ये फ़सलें आपके लिए अच्छी हैं:"
+        return note
+    if language == "te":
+        note = ""
+        if crop and stage:
+            note += f"మీ {crop} పంట ప్రస్తుతం {stage} దశలో ఉంది. "
+        note += f"ఇవి మీ {soil} నేలకు బాగుంటాయి:" if soil else "ఇవి మీకు బాగుంటాయి:"
+        return note
+    note = ""
+    if crop and stage:
+        note += f"Your {crop} is at the {stage} stage. "
+    note += f"These suit your {soil} soil:" if soil else "These suit your field:"
+    return note
 
 EXPLAIN_SYSTEM_INSTRUCTION = """You are KisanMate, a friendly farm assistant speaking to a
 smallholder farmer in India. You are given a crop diagnosis result that has ALREADY been
@@ -31,6 +123,9 @@ Rules you must always follow:
   (b) tell them to confirm the exact product and dosage with the RSK officer or an agriculture
       extension worker.
 - Never state a specific chemical name, brand, or dosage/quantity yourself.
+- You are given the farmer's field context (crop, soil type, current growth stage). Refer to it
+  naturally in your answer -- for example, "for your black soil at the flowering stage..." -- so the
+  advice feels personal. Do not list the context mechanically, and do not invent context you weren't given.
 - Keep the whole message under 80 words.
 """
 
@@ -92,12 +187,17 @@ Rules you must always follow:
 - Ground every reason ONLY in the matched criteria you are given (soil / season / area). Never
   invent facts, yields, prices, chemicals, or dosages.
 - Do not re-rank the crops or contradict the ranking; only explain it.
+- You are given the farmer's field context (their soil type, and their current crop's growth
+  stage). Reference the farmer's soil naturally in the reasons so they feel personal.
 - Keep each reason under 20 words.
 - Return ONLY a JSON object mapping each crop id to its reason string, nothing else."""
 
 
-def explain_recommendations(recommendations: list[CropRecommendation], language: str) -> dict:
-    """Ask Gemini to write a warm reason per ranked crop. Raises RecommendExplainError on failure.
+def explain_recommendations(
+    recommendations: list[CropRecommendation], language: str, context: FusionContext = None
+) -> dict:
+    """Ask Gemini to write a warm reason per ranked crop, personalized to the
+    farmer's field context. Raises RecommendExplainError on failure.
 
     Returns {crop_id: reason_text}. The deterministic reason already on each
     recommendation is the fallback the caller keeps if this raises.
@@ -111,9 +211,16 @@ def explain_recommendations(recommendations: list[CropRecommendation], language:
         }
         for rec in recommendations
     ]
+    facts = _context_facts(context)
+    context_block = (
+        f"\n\nFarmer's field context (reference their soil naturally):\n{json.dumps(facts)}"
+        if facts
+        else ""
+    )
     prompt = (
         f"{RECOMMEND_SYSTEM_INSTRUCTION}\n\n"
-        f"Respond in: {language_name}\n\n"
+        f"Respond in: {language_name}"
+        f"{context_block}\n\n"
         f"Crops and the criteria each matched (JSON):\n{json.dumps(items)}"
     )
     try:
@@ -136,18 +243,33 @@ def explain_recommendations(recommendations: list[CropRecommendation], language:
         raise RecommendExplainError(f"Gemini recommendation explain call failed: {exc}") from exc
 
 
-def template_message(decision: str, language: str) -> str:
-    """Deterministic per-language fallback message; never calls Gemini."""
+def template_message(decision: str, language: str, context=None) -> str:
+    """Deterministic per-language fallback message; never calls Gemini.
+
+    When a fusion context is supplied, the message is prefixed with a localized
+    lead-in that names the farmer's soil and growth stage, so even this offline
+    path is personalized ("For your black soil at the flowering stage — ...").
+    """
     templates = _TEMPLATES.get(language, _TEMPLATES["en"])
-    return templates.get(decision, templates["escalate_rsk"])
+    base = templates.get(decision, templates["escalate_rsk"])
+    return personalize_prefix(context, language) + base
 
 
-def explain_fusion(fusion: FusionOutput, language: str) -> str:
-    """Ask Gemini to narrate an already-decided fusion result. Raises ExplainError on failure."""
+def explain_fusion(fusion: FusionOutput, language: str, context: FusionContext = None) -> str:
+    """Ask Gemini to narrate an already-decided fusion result, personalized to the
+    farmer's field context. Raises ExplainError on failure."""
     language_name = LANGUAGE_NAMES.get(language, "English")
+    facts = _context_facts(context)
+    context_block = (
+        f"\n\nFarmer's field context (reference it naturally, do not repeat as a list):\n"
+        f"{json.dumps(facts)}"
+        if facts
+        else ""
+    )
     prompt = (
         f"{EXPLAIN_SYSTEM_INSTRUCTION}\n\n"
-        f"Respond in: {language_name}\n\n"
+        f"Respond in: {language_name}"
+        f"{context_block}\n\n"
         f"Diagnosis result (JSON, for your reference only -- do not repeat it verbatim):\n"
         f"{fusion.model_dump_json()}"
     )

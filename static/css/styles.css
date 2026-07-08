@@ -633,6 +633,36 @@ section[id^="screen-"] > h1 { outline: none; }
 .location-status { color: var(--text-muted); min-height: 1.5em; }
 .location-status:empty { display: none; }
 
+/* live place-search type-ahead */
+.place-search { position: relative; }
+.place-suggestions {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+  max-height: 260px;
+  overflow-y: auto;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+.place-option,
+.place-hint {
+  padding: var(--space-2) var(--space-3);
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+}
+.place-option { cursor: pointer; border-bottom: 1px solid var(--border); }
+.place-option:last-child { border-bottom: none; }
+.place-option:hover,
+.place-option-active { background: var(--surface-alt); }
+.place-hint { color: var(--text-muted); }
+
 .crops-editor { display: flex; flex-direction: column; gap: var(--space-2); }
 .crop-row {
   display: flex;

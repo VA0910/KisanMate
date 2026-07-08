@@ -46,11 +46,17 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def _cleanup_non_seeded():
+def _cleanup_test_farmer():
+    """Delete ONLY the farmer this suite creates (matched by its test phone).
+
+    Never touch other non-seeded farmers: this Firestore project is shared with
+    the deployed app, so a blanket "delete everything non-seeded" would wipe real
+    users' documents.
+    """
     try:
-        for f in firestore_client.list_farmers():
-            if f.id not in SEEDED:
-                firestore_client.get_client().collection("farmers").document(f.id).delete()
+        farmer = firestore_client.get_farmer_by_phone(NEW_PHONE)
+        if farmer is not None and farmer.id not in SEEDED:
+            firestore_client.get_client().collection("farmers").document(farmer.id).delete()
     except Exception:
         pass
 
@@ -63,7 +69,7 @@ def base_url():
     import seed_crops
     seed.seed()          # demo farmers (with phones)
     seed_crops.seed()    # crops catalog (tomato etc.) for the crop picker
-    _cleanup_non_seeded()
+    _cleanup_test_farmer()
 
     port = _free_port()
     proc = subprocess.Popen(
@@ -87,7 +93,7 @@ def base_url():
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
-        _cleanup_non_seeded()
+        _cleanup_test_farmer()
         # Restore Ramesh to seeded state (the profile-edit test mutates his soil).
         seed.seed()
 
@@ -139,9 +145,20 @@ def test_new_phone_setup_persists_location_soil_crops(page, base_url):
     # New user lands on the stepped setup wizard.
     page.wait_for_selector("#screen-profile-setup:not([hidden])")
 
-    # Step 1: location -- geolocation is denied in headless, so the silent district
-    # fallback leaves Guntur selected. Advance.
+    # Step 1: location. Geolocation is denied in headless, so use the live place
+    # search. Mock the geocoder route so the test is deterministic and offline.
+    page.route(
+        "**/api/places*",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body='{"places":[{"name":"Kanpur, Uttar Pradesh","lat":26.46,"lng":80.32}]}',
+        ),
+    )
     page.wait_for_selector("#setup-step-location:not([hidden])")
+    page.fill("#setup-place-input", "Kanpur")
+    page.wait_for_selector("#setup-place-suggestions .place-option")
+    page.click("#setup-place-suggestions .place-option")
     page.click("#setup-location-next")
 
     # Step 2: soil.
@@ -162,8 +179,9 @@ def test_new_phone_setup_persists_location_soil_crops(page, base_url):
     farmer = firestore_client.get_farmer_by_phone(NEW_PHONE)
     assert farmer is not None
     assert farmer.soil_type == "black"
-    assert farmer.location.mandal == "Guntur"
-    assert isinstance(farmer.location.lat, float) and isinstance(farmer.location.lng, float)
+    # The place picked from live search set its real coordinates as the location.
+    assert farmer.location.mandal == "Kanpur, Uttar Pradesh"
+    assert abs(farmer.location.lat - 26.46) < 0.01 and abs(farmer.location.lng - 80.32) < 0.01
     assert [{"crop_id": c.crop_id, "planting_date": c.planting_date} for c in farmer.current_crops] == [
         {"crop_id": "tomato", "planting_date": "2026-06-15"}
     ]
