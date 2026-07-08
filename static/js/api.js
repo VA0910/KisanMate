@@ -165,6 +165,22 @@
     return requestJson("/api/alerts/" + encodeURIComponent(farmerId), { method: "GET" }, 15000);
   }
 
+  function getMyCases(farmerId) {
+    return requestJson("/api/farmers/" + encodeURIComponent(farmerId) + "/cases", { method: "GET" }, 15000);
+  }
+
+  function getNotifications(farmerId) {
+    return requestJson("/api/farmers/" + encodeURIComponent(farmerId) + "/notifications", { method: "GET" }, 15000);
+  }
+
+  function markVerdictSeen(caseId) {
+    return requestJson(
+      "/api/cases/" + encodeURIComponent(caseId) + "/verdict-seen",
+      { method: "POST" },
+      15000
+    ).catch(function () { return null; }); // best-effort: never disrupt the farmer
+  }
+
   function demoRun(lang) {
     return requestJson(
       "/api/demo/run",
@@ -216,6 +232,9 @@
     recommend: recommend,
     recommendAsk: recommendAsk,
     getAlerts: getAlerts,
+    getMyCases: getMyCases,
+    getNotifications: getNotifications,
+    markVerdictSeen: markVerdictSeen,
     confirm: confirm,
     dispute: dispute,
     demoRun: demoRun,

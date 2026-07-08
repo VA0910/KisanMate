@@ -91,6 +91,9 @@ def fake_store(monkeypatch):
     def list_cases_by_status(statuses):
         return [c for c in cases.values() if c.status in statuses]
 
+    def list_cases_by_farmer(farmer_id):
+        return [c for c in cases.values() if c.farmer_id == farmer_id]
+
     def list_farmers():
         return DEMO_FARMERS
 
@@ -109,6 +112,7 @@ def fake_store(monkeypatch):
     monkeypatch.setattr(firestore_client, "get_case", get_case)
     monkeypatch.setattr(firestore_client, "update_case", update_case)
     monkeypatch.setattr(firestore_client, "list_cases_by_status", list_cases_by_status)
+    monkeypatch.setattr(firestore_client, "list_cases_by_farmer", list_cases_by_farmer)
     monkeypatch.setattr(firestore_client, "list_farmers", list_farmers)
     monkeypatch.setattr(firestore_client, "create_alert", create_alert)
     monkeypatch.setattr(firestore_client, "list_recent_alerts", list_recent_alerts)
@@ -174,3 +178,25 @@ def test_override_to_noncontagious_condition_fires_no_alert(fake_store):
 def test_confirm_missing_case_returns_404(fake_store):
     resp = client.post("/api/confirm", json={"case_id": "nope", "officer_verdict": "late_blight"})
     assert resp.status_code == 404
+
+
+def test_verdict_notification_fires_once_then_clears(fake_store):
+    # Before any officer verdict: the escalated case is not a notification.
+    assert client.get("/api/farmers/ramesh/notifications").json()["notifications"] == []
+
+    # Officer confirms -> the verdict becomes an unseen notification for the farmer.
+    client.post("/api/confirm", json={"case_id": "case-1", "officer_verdict": "late_blight"})
+    notifs = client.get("/api/farmers/ramesh/notifications").json()["notifications"]
+    assert len(notifs) == 1
+    assert notifs[0]["case_id"] == "case-1"
+    assert notifs[0]["condition"] == "late_blight"
+    assert notifs[0]["officer_reviewed"] is True
+
+    # Farmer sees the popup and acknowledges -> it must never fire again.
+    client.post("/api/cases/case-1/verdict-seen")
+    assert fake_store["cases"]["case-1"].verdict_seen is True
+    assert client.get("/api/farmers/ramesh/notifications").json()["notifications"] == []
+    # ...but it stays visible in My reports, now marked officer-reviewed.
+    reports = client.get("/api/farmers/ramesh/cases").json()["cases"]
+    assert reports[0]["officer_reviewed"] is True
+    assert reports[0]["condition"] == "late_blight"

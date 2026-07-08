@@ -140,6 +140,20 @@ def update_case(case_id: str, updates: dict) -> None:
     get_client().collection(CASES_COLLECTION).document(case_id).update(updates)
 
 
+def list_cases_by_farmer(farmer_id: str) -> list[Case]:
+    """One farmer's own case history, newest first (their "My reports" list).
+
+    Single-field filter + Python-side sort, same reasoning as
+    list_cases_by_status: avoids needing a composite Firestore index.
+    """
+    query = get_client().collection(CASES_COLLECTION).where(
+        filter=firestore.FieldFilter("farmer_id", "==", farmer_id)
+    )
+    cases = [Case(id=doc.id, **doc.to_dict()) for doc in query.stream()]
+    cases.sort(key=lambda c: (c.created_at is not None, c.created_at), reverse=True)
+    return cases
+
+
 # --- alerts ----------------------------------------------------------------------
 
 def create_alert(alert: Alert) -> str:

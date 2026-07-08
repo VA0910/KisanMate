@@ -117,6 +117,14 @@ def page(base_url):
     # wizard's silent district fallback still fires.
     context = browser.new_context(permissions=["camera"])
     pg = context.new_page()
+    # A signed-in farmer with an unseen RSK officer verdict gets a one-time popup
+    # that (correctly, as a modal) covers the viewport. It can appear at any point
+    # after sign-in, so auto-dismiss it whenever it shows -- these tests exercise
+    # the auth/profile/diagnose flows, not the verdict popup itself.
+    pg.add_locator_handler(
+        pg.locator("#verdict-modal:not([hidden])"),
+        lambda: pg.click("#verdict-modal-dismiss-btn"),
+    )
     try:
         yield pg
     finally:

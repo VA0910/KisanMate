@@ -11,7 +11,7 @@
 
   var SESSION_KEY = "kisanmate_session";
   // The screens that make up the signed-in app (bottom nav shows only on these).
-  var APP_SCREENS = { home: true, diagnose: true, recommend: true, alerts: true, profile: true };
+  var APP_SCREENS = { home: true, diagnose: true, recommend: true, alerts: true, profile: true, reports: true };
 
   var SOIL_OPTIONS = ["alluvial", "black", "loamy", "red", "sandy"];
   var ZONE_OPTIONS = ["delta", "coastal", "upland", "semi_arid"];
@@ -20,7 +20,10 @@
   var RAINFALL_MM = { low: 300, medium: 650, high: 1000 };
   var GROUNDWATER_M = { shallow: 3, medium: 10, deep: 20 };
   var CROP_EMOJI = { rice: "🌾", tomato: "🍅", chili: "🌶️", cotton: "🌱", groundnut: "🥜", maize: "🌽" };
-  var TIER_ICON = { watch: "icon-info-circle", warning: "icon-alert-triangle", alert: "icon-alert-octagon" };
+  var TIER_ICON = {
+    watch: "icon-info-circle", warning: "icon-alert-triangle", alert: "icon-alert-octagon",
+    confirmed: "icon-check-circle"
+  };
 
   var SECTION_IDS = {
     welcome: "screen-welcome",
@@ -32,7 +35,8 @@
     home: "screen-home",
     diagnose: "screen-diagnose",
     recommend: "screen-recommend",
-    alerts: "screen-alerts"
+    alerts: "screen-alerts",
+    reports: "screen-reports"
   };
 
   var state = {
@@ -173,7 +177,8 @@
     home: loadReminders,
     diagnose: resetDiagnoseScreen,
     recommend: resetRecommendScreen,
-    alerts: loadAlerts
+    alerts: loadAlerts,
+    reports: loadMyCases
   };
 
   function showScreen(name, skipHook) {
@@ -326,6 +331,7 @@
     $("mic-btn").addEventListener("click", handleMicTap);
     $("go-diagnose-btn").addEventListener("click", function () { showScreen("diagnose"); });
     $("go-recommend-btn").addEventListener("click", function () { showScreen("recommend"); });
+    $("go-reports-btn").addEventListener("click", function () { showScreen("reports"); });
 
     if (!window.KM_SPEECH.sttAvailable) {
       $("mic-hint").textContent = t("micUnavailableHint");
@@ -834,6 +840,151 @@
     $("alerts-retry-btn").addEventListener("click", loadAlerts);
   }
 
+  // ---- My reports (past diagnoses, incl. any RSK officer verdict) --------------
+
+  // Reuses the alert-card visual tiers: escalated/disputed still need attention,
+  // confirmed is the officer's verdict landing back on the farmer (PROJECT_SPEC.md:
+  // "the verdict is authoritative and flows back to the farmer"), advised/pending
+  // are calm/neutral.
+  var REPORT_STATUS_TIER = {
+    pending: "watch",
+    advised: "watch",
+    escalated: "warning",
+    disputed: "warning",
+    confirmed: "confirmed"
+  };
+
+  function showReportsSubState(name) {
+    var map = { loading: "reports-loading", list: "reports-list", empty: "reports-empty", error: "reports-error" };
+    Object.keys(map).forEach(function (k) { $(map[k]).hidden = k !== name; });
+  }
+
+  function loadMyCases() {
+    showReportsSubState("loading");
+    window.KM_API.getMyCases(state.farmerId)
+      .then(renderMyCases)
+      .catch(function (err) {
+        $("reports-error-msg").textContent = friendlyMessageFor(err, "reportsLoadError");
+        showReportsSubState("error");
+      });
+  }
+
+  function renderMyCases(data) {
+    var d = dict();
+    var cases = data.cases || [];
+    if (!cases.length) {
+      showReportsSubState("empty");
+      return;
+    }
+
+    var list = $("reports-list");
+    list.innerHTML = "";
+    cases.forEach(function (item) {
+      var status = item.status || "pending";
+      var tier = REPORT_STATUS_TIER[status] || "watch";
+
+      var li = document.createElement("li");
+      li.className = "alert-card alert-tier-" + tier;
+
+      var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("class", "icon alert-card-icon");
+      svg.setAttribute("aria-hidden", "true");
+      var use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      use.setAttribute("href", "#" + (TIER_ICON[tier] || "icon-info-circle"));
+      svg.appendChild(use);
+      li.appendChild(svg);
+
+      var body = document.createElement("div");
+      body.className = "alert-card-body";
+
+      var badge = document.createElement("span");
+      badge.className = "tier-badge tier-badge-" + tier;
+      badge.textContent = (d.reportStatuses && d.reportStatuses[status]) || status;
+      body.appendChild(badge);
+
+      var title = document.createElement("p");
+      title.className = "alert-card-title";
+      title.textContent = item.condition ? prettyCondition(item.condition) : t("loading");
+      body.appendChild(title);
+
+      var metaParts = [];
+      if (item.crop) metaParts.push(prettyCondition(item.crop));
+      var relDate = formatRelativeDate(item.created_at);
+      if (relDate) metaParts.push(relDate);
+      if (metaParts.length) {
+        var meta = document.createElement("p");
+        meta.className = "alert-card-meta";
+        meta.textContent = metaParts.join(" • ");
+        body.appendChild(meta);
+      }
+
+      if (item.officer_reviewed) {
+        var note = document.createElement("p");
+        note.className = "alert-card-meta";
+        note.textContent = "✓ " + t("officerReviewed");
+        body.appendChild(note);
+      }
+
+      li.appendChild(body);
+      list.appendChild(li);
+    });
+
+    showReportsSubState("list");
+  }
+
+  function wireReports() {
+    $("reports-retry-btn").addEventListener("click", loadMyCases);
+  }
+
+  // ---- verdict popup (RSK officer reviewed the farmer's case) ------------------
+
+  // Checked once per app open/reload: if an officer has confirmed/overridden any
+  // of the farmer's cases since they last saw it, show a one-time popup. The
+  // server tracks "seen" per case (verdict_seen), so it fires exactly once even
+  // across devices; acknowledging marks them seen so it never repeats.
+  function checkVerdictNotifications() {
+    if (!isSignedIn() || state.demoActive) return;
+    window.KM_API.getNotifications(state.farmerId)
+      .then(function (data) {
+        var items = (data && data.notifications) || [];
+        if (items.length) showVerdictModal(items);
+      })
+      .catch(function () { /* silent: the verdict is still in My reports */ });
+  }
+
+  function showVerdictModal(items) {
+    var modal = $("verdict-modal");
+    var body = $("verdict-modal-body");
+    if (items.length === 1) {
+      var cond = items[0].condition ? prettyCondition(items[0].condition) : "";
+      body.textContent = t("verdictModalBody")(cond);
+    } else {
+      body.textContent = t("verdictModalBodyMany")(items.length);
+    }
+
+    // Acknowledge every notified case so the popup never fires for them again.
+    function acknowledge() {
+      items.forEach(function (it) {
+        if (it.case_id) window.KM_API.markVerdictSeen(it.case_id);
+      });
+    }
+
+    function close() {
+      modal.hidden = true;
+      acknowledge();
+    }
+
+    $("verdict-modal-dismiss-btn").onclick = close;
+    $("verdict-modal-view-btn").onclick = function () {
+      modal.hidden = true;
+      acknowledge();
+      showScreen("reports");
+    };
+
+    modal.hidden = false;
+    if (!state.demoActive) window.KM_SPEECH.speak(t("verdictModalTitle"), localeTag());
+  }
+
   // ---- language picker + header + bottom nav -------------------------------------
 
   function wireLanguageCards() {
@@ -927,6 +1078,7 @@
           openSetup();
         } else {
           showScreen("home");
+          checkVerdictNotifications();  // one-time officer-verdict popup on first login
         }
       })
       .catch(function () {
@@ -1844,6 +1996,7 @@
     wireDiagnose();
     wireRecommend();
     wireAlerts();
+    wireReports();
     wireDemo();
     wireIntro();
 
@@ -1858,6 +2011,7 @@
     // otherwise start at the welcome landing and walk the onboarding flow.
     if (isSignedIn()) {
       showScreen("home");
+      checkVerdictNotifications();  // one-time officer-verdict popup on reload
     } else {
       showScreen("welcome");
     }

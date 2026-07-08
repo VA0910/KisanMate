@@ -40,6 +40,8 @@ def confirm_and_propagate(
             "status": "confirmed",
             "condition": verdict,
             "contagious": contagious,
+            # Fresh verdict the farmer hasn't seen -> triggers the one-time popup.
+            "verdict_seen": False,
         },
     )
     # Mirror the write onto the in-memory case so propagation sees the verdict
@@ -48,6 +50,7 @@ def confirm_and_propagate(
     case.status = "confirmed"
     case.condition = verdict
     case.contagious = contagious
+    case.verdict_seen = False
 
     if not contagious:
         return None

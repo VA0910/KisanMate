@@ -871,6 +871,10 @@ section[id^="screen-"] > h1 { outline: none; }
 .alert-tier-alert .alert-card-icon { color: var(--alert); }
 .tier-badge-alert { background: var(--alert-bg); color: var(--alert); }
 
+.alert-tier-confirmed { border-left-color: var(--primary-strong); }
+.alert-tier-confirmed .alert-card-icon { color: var(--primary-strong); }
+.tier-badge-confirmed { background: var(--surface-alt); color: var(--primary-strong); }
+
 /* ---------- toast ---------------------------------------------------------------- */
 
 .toast {
@@ -1001,6 +1005,32 @@ body.demo-running { padding-bottom: 300px; }
   justify-content: flex-end;
   flex-wrap: wrap;
 }
+
+/* ---------- verdict popup (officer reviewed your case) --------------------------- */
+
+.verdict-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(0, 0, 0, 0.5);
+}
+.verdict-modal-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+.verdict-modal-icon { color: var(--primary); }
+.verdict-modal-title { margin: var(--space-2) 0; font-size: 1.35rem; }
+.verdict-modal-body { margin: 0 0 var(--space-4); line-height: 1.5; color: var(--text); }
+.verdict-modal-card .btn + .btn { margin-top: var(--space-2); }
 
 /* ---------- small tablet+ progressive enhancement --------------------------------- */
 

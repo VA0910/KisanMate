@@ -7,9 +7,7 @@ fallback (layer 1 / layer 3 of the spec: templates + silent fallback).
 """
 import json
 
-from google import genai
-
-from config import GEMINI_API_KEY, GEMINI_MODEL
+from config import GEMINI_MODEL, get_genai_client
 from models import CropRecommendation, FusionContext, FusionOutput
 
 LANGUAGE_NAMES = {"en": "English", "hi": "Hindi", "te": "Telugu"}
@@ -249,7 +247,7 @@ def explain_recommendations(
         f"Crops and the criteria each matched (JSON):\n{json.dumps(items)}"
     )
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        client = get_genai_client()
         response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
         text = (response.text or "").strip()
         if not text:
@@ -324,7 +322,7 @@ def recommend_conversational(question, profile, grounding, language):
         f"Grounded candidate crops (recommend ONLY from these):\n{json.dumps(grounding)}"
     )
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        client = get_genai_client()
         response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
         text = (response.text or "").strip()
         if not text:
@@ -461,7 +459,7 @@ def explain_fusion(
         f"{fusion.model_dump_json()}"
     )
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        client = get_genai_client()
         response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
         text = (response.text or "").strip()
         if not text:

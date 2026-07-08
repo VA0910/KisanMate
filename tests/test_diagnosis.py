@@ -172,6 +172,49 @@ def test_resolve_non_matching_crop_repoints_to_identified_profile(monkeypatch):
     assert ctx.susceptible_diseases == ["leaf_rust", "stripe_rust"]
 
 
+def _multi_crop_farmer():
+    """Grows tomato AND rice; context defaults to the FIRST (tomato)."""
+    return Farmer(
+        id="lakshmi", name="Lakshmi", phone="9876500004", lang="en",
+        location=FarmerLocation(lat=16.3, lng=80.4, mandal="Guntur"),
+        crop="tomato", land_size_acres=2.0, growth_stage="flowering", soil_type="black",
+        current_crops=[
+            CurrentCrop(crop_id="tomato", planting_date="2026-05-01"),
+            CurrentCrop(crop_id="rice", planting_date="2026-06-01"),
+        ],
+    )
+
+
+def test_resolve_photo_of_a_different_own_crop_still_repoints(monkeypatch):
+    """A multi-crop farmer photographs crop #2 (rice), not crop #1 (tomato) that
+    `context` defaulted to. Even though rice IS one of the farmer's own crops
+    (matches_profile=True), the context must still repoint to rice -- not stay
+    on the stale tomato default -- so vision/fusion score rice's own diseases."""
+    rice = Crop(
+        id="rice", names=CropNames(en="Rice", hi="चावल", te="వరి"),
+        seasons=["kharif"], soil_types=["clay"], water_need="high", regions=["delta"],
+        cycle_days=120, growth_stages=[GrowthStage(name="tillering", start_day=20, care_note="x")],
+        susceptible_diseases=["rice_blast", "bacterial_leaf_blight"],
+    )
+    monkeypatch.setattr(firestore_client, "get_crop", lambda cid: rice if cid == "rice" else None)
+    monkeypatch.setattr(firestore_client, "log_telemetry", lambda e: "t")
+    ctx = FusionContext(
+        crop="tomato", location=ContextLocation(lat=16.3, lng=80.4, resolution="village"),
+        weather=Weather(temp_c=28, humidity_pct=85, rain_48h_mm=8, source="live"),
+        soil=Soil(nitrogen="unknown", source="unknown"), nearby_confirmed=[],
+        growth_stage="flowering", crop_day=10,
+    )
+    vision = VisionOutput(
+        image_quality="good", crop_confirmed="rice", identified_crop="rice",
+        candidates=[VisionCandidate(condition="rice_blast", confidence=0.8, visible_symptoms=["lesions"])],
+    )
+    main._resolve_diagnosed_crop(vision, _multi_crop_farmer(), ctx)
+    assert vision.matches_profile is True          # rice IS one of the farmer's crops
+    assert ctx.crop == "rice"                       # but repointed, not left on tomato
+    assert ctx.susceptible_diseases == ["rice_blast", "bacterial_leaf_blight"]
+    assert ctx.growth_stage == "tillering"           # recomputed from rice's own planting date
+
+
 # --- endpoint: confident result is confident, no officer -------------------------
 
 def test_diagnose_advise_has_no_officer_mention(monkeypatch):
@@ -247,6 +290,50 @@ def test_diagnose_non_tomato_uses_crop_specific_disease(monkeypatch):
     assert set(expl) == {"what", "why", "what_to_do"}
     assert all(expl.values())
     assert "officer" not in (expl["what"] + expl["why"] + expl["what_to_do"]).lower()
+
+
+def test_diagnose_rescopes_vision_when_photo_is_a_different_crop(monkeypatch):
+    """A tomato farmer photographs WHEAT (rust). The first vision pass is scoped
+    to tomato's diseases (can't name rust), so once the plant is identified as
+    wheat the flow must RE-RUN vision scoped to wheat's diseases -- otherwise
+    rust is never an option and the crop looks healthy (the reported bug)."""
+    wheat = Crop(
+        id="wheat", names=CropNames(en="Wheat", hi="गेहूं", te="గోధుమ"),
+        seasons=["rabi"], soil_types=["loam"], water_need="medium", regions=["irrigated"],
+        cycle_days=125, growth_stages=[GrowthStage(name="tillering", start_day=20, care_note="x")],
+        susceptible_diseases=["leaf_rust", "stripe_rust", "loose_smut"],
+    )
+    monkeypatch.setattr(firestore_client, "get_farmer", lambda fid: _tomato_farmer())
+    monkeypatch.setattr(firestore_client, "get_crop", lambda cid: wheat if cid == "wheat" else None)
+    monkeypatch.setattr(firestore_client, "create_case", lambda case: "case-w")
+    monkeypatch.setattr(firestore_client, "log_telemetry", lambda e: "t")
+    monkeypatch.setattr(main, "explain_fusion", lambda *a, **k: (_ for _ in ()).throw(ExplainError("no key")))
+    calls = []
+
+    def fake_vision(image_bytes, mime_type="image/jpeg", candidate_conditions=None):
+        cands = candidate_conditions or []
+        calls.append(list(cands))
+        # The model can only report a disease it was offered. Scoped to wheat it
+        # names rust; scoped to the tomato list (first pass) it can't, so healthy.
+        if "leaf_rust" in cands:
+            return VisionOutput(
+                image_quality="good", crop_confirmed="wheat", identified_crop="wheat",
+                candidates=[VisionCandidate(condition="leaf_rust", confidence=0.88, visible_symptoms=["orange pustules"])],
+            )
+        return VisionOutput(
+            image_quality="good", crop_confirmed="uncertain", identified_crop="wheat",
+            candidates=[VisionCandidate(condition="healthy", confidence=0.7)],
+        )
+
+    monkeypatch.setattr(main, "diagnose_image", fake_vision)
+
+    resp = client.post("/api/diagnose", data={"farmer_id": "ramesh"},
+                       files={"image": ("leaf.jpg", b"img", "image/jpeg")})
+    body = resp.json()
+    assert len(calls) == 2                                   # re-scored after identifying wheat
+    assert "leaf_rust" not in calls[0]                       # first pass: tomato list, no rust option
+    assert "leaf_rust" in calls[1]                           # second pass: scoped to wheat's diseases
+    assert body["fusion"]["top"] == "leaf_rust"              # rust is now actually diagnosed
 
 
 def test_diagnose_escalate_explanation_mentions_officer(monkeypatch):

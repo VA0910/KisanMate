@@ -177,6 +177,29 @@
         return n === 1 ? "You have 1 new alert" : "You have " + n + " new alerts";
       },
 
+      reportsCardTitle: "My reports",
+      reportsCardSub: "See your past diagnoses",
+      reportsTitle: "Your Reports",
+      reportsEmpty: "You haven't diagnosed a crop yet.",
+      reportsLoadError: "We couldn't load your reports. Please check your connection.",
+      officerReviewed: "Reviewed by RSK officer",
+      reportStatuses: {
+        pending: "Checking...",
+        advised: "AI diagnosis",
+        escalated: "Awaiting officer review",
+        disputed: "You flagged this",
+        confirmed: "Confirmed by officer"
+      },
+      verdictModalTitle: "An officer reviewed your crop",
+      verdictModalBody: function (condition) {
+        return "A local RSK officer has reviewed your case. Their finding: " + condition + ".";
+      },
+      verdictModalBodyMany: function (n) {
+        return "A local RSK officer has reviewed " + n + " of your cases. Tap below to see the details.";
+      },
+      verdictModalView: "See details",
+      verdictModalDismiss: "Close",
+
       conditions: {
         late_blight: "Late Blight",
         early_blight: "Early Blight",
@@ -394,6 +417,29 @@
         return n === 1 ? "आपके लिए 1 नई सूचना है" : "आपके लिए " + n + " नई सूचनाएं हैं";
       },
 
+      reportsCardTitle: "मेरी रिपोर्ट",
+      reportsCardSub: "अपनी पिछली जांच देखें",
+      reportsTitle: "आपकी रिपोर्ट",
+      reportsEmpty: "आपने अभी तक किसी फ़सल की जांच नहीं की है।",
+      reportsLoadError: "रिपोर्ट लोड नहीं हो पाईं। कृपया इंटरनेट जांचें।",
+      officerReviewed: "RSK अधिकारी द्वारा जांचा गया",
+      reportStatuses: {
+        pending: "जांच हो रही है...",
+        advised: "AI जांच",
+        escalated: "अधिकारी की समीक्षा बाकी है",
+        disputed: "आपने इसे फ़्लैग किया",
+        confirmed: "अधिकारी द्वारा पुष्टि की गई"
+      },
+      verdictModalTitle: "एक अधिकारी ने आपकी फ़सल की जांच की",
+      verdictModalBody: function (condition) {
+        return "स्थानीय RSK अधिकारी ने आपके मामले की जांच की है। उनका नतीजा: " + condition + "।";
+      },
+      verdictModalBodyMany: function (n) {
+        return "स्थानीय RSK अधिकारी ने आपके " + n + " मामलों की जांच की है। विवरण देखने के लिए नीचे टैप करें।";
+      },
+      verdictModalView: "विवरण देखें",
+      verdictModalDismiss: "बंद करें",
+
       conditions: {
         late_blight: "पछेती झुलसा (Late Blight)",
         early_blight: "अगेती झुलसा (Early Blight)",
@@ -610,6 +656,29 @@
       alertsSummarySpoken: function (n) {
         return n === 1 ? "మీకు 1 కొత్త హెచ్చరిక ఉంది" : "మీకు " + n + " కొత్త హెచ్చరికలు ఉన్నాయి";
       },
+
+      reportsCardTitle: "నా నివేదికలు",
+      reportsCardSub: "మీ గత పరీక్షలు చూడండి",
+      reportsTitle: "మీ నివేదికలు",
+      reportsEmpty: "మీరు ఇంకా ఏ పంటనూ పరీక్షించలేదు.",
+      reportsLoadError: "నివేదికలు లోడ్ కాలేదు. దయచేసి ఇంటర్నెట్ చూడండి.",
+      officerReviewed: "RSK అధికారి సమీక్షించారు",
+      reportStatuses: {
+        pending: "పరిశీలిస్తోంది...",
+        advised: "AI నిర్ధారణ",
+        escalated: "అధికారి సమీక్ష కోసం వేచి ఉంది",
+        disputed: "మీరు దీన్ని ఫ్లాగ్ చేశారు",
+        confirmed: "అధికారి నిర్ధారించారు"
+      },
+      verdictModalTitle: "ఒక అధికారి మీ పంటను సమీక్షించారు",
+      verdictModalBody: function (condition) {
+        return "స్థానిక RSK అధికారి మీ కేసును సమీక్షించారు. వారి నిర్ధారణ: " + condition + ".";
+      },
+      verdictModalBodyMany: function (n) {
+        return "స్థానిక RSK అధికారి మీ " + n + " కేసులను సమీక్షించారు. వివరాల కోసం కింద నొక్కండి.";
+      },
+      verdictModalView: "వివరాలు చూడండి",
+      verdictModalDismiss: "మూసివేయి",
 
       conditions: {
         late_blight: "ఆలస్య తెగులు (Late Blight)",

@@ -6,6 +6,34 @@ It runs as **one FastAPI app** that serves both a plain HTML/CSS/JS frontend (no
 
 ---
 
+## 📸 Screenshots
+
+### 📱 The farmer app
+
+<table>
+  <tr>
+    <td align="center" width="25%"><img src="docs/screenshots/home.jpg" width="200"><br><sub><b>Home — reminders &amp; voice</b></sub></td>
+    <td align="center" width="25%"><img src="docs/screenshots/grow.jpg" width="200"><br><sub><b>Voice crop recommendation</b></sub></td>
+    <td align="center" width="25%"><img src="docs/screenshots/diagnose.jpg" width="200"><br><sub><b>Photo diagnosis</b></sub></td>
+    <td align="center" width="25%"><img src="docs/screenshots/alert.jpg" width="200"><br><sub><b>Community disease alert</b></sub></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="docs/screenshots/reports.png" width="380"><br><sub><b>Your reports — AI diagnoses vs. officer-confirmed</b></sub></td>
+    <td align="center" width="50%"><img src="docs/screenshots/officer-review.png" width="300"><br><sub><b>Farmer notified when an officer reviews the case</b></sub></td>
+  </tr>
+</table>
+
+### 🧑‍🌾 RSK officer portal — the human-in-the-loop gate
+
+<p align="center"><img src="docs/screenshots/officer-portal.png" width="760"></p>
+
+The officer sees the AI's ranked candidates, confidence, and detected symptoms, and works two queues — cases the AI flagged for review, and results a farmer disputed. Their verdict is final and drives what the farmer sees (and any community alert).
+
+---
+
 ## Highlights
 
 - **Voice-first, low-literacy UI** — big mic button, text-to-speech, icons, large tap targets, full en/hi/te translations.
@@ -98,15 +126,44 @@ Set these in `.env` for local dev, or in the service config when deployed.
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `GEMINI_API_KEY` | for live AI | — | Gemini vision/explanation/recommendation. Without it, the app uses deterministic fallbacks. |
+| `GEMINI_USE_VERTEXAI` | no | `true` | Call Gemini via **Vertex AI** (billed to `GOOGLE_CLOUD_PROJECT`'s Cloud billing account, eligible for Free Trial credits) instead of the AI Studio Developer API. Set to `false` to use `GEMINI_API_KEY`/Secret Manager instead. |
+| `GEMINI_VERTEX_LOCATION` | no | `asia-south1` | Vertex AI region used when `GEMINI_USE_VERTEXAI=true`. |
+| `GEMINI_API_KEY` | only if `GEMINI_USE_VERTEXAI=false` | — | Gemini key, provided **directly**. Wins over Secret Manager if both are set. |
+| `GEMINI_API_KEY_SECRET` | alternative to above | — | Load the Gemini key from **Google Secret Manager** instead — a short secret id (resolved against `GOOGLE_CLOUD_PROJECT`) or a full `projects/…/secrets/…/versions/latest` resource name. |
+| `GEMINI_API_KEY_SECRET_PROJECT` | no | `GOOGLE_CLOUD_PROJECT` | Project a short secret id resolves against, if different from Firestore's. |
 | `GEMINI_MODEL` | no | `gemini-2.5-flash` | Which Gemini model to call. |
-| `GOOGLE_CLOUD_PROJECT` | yes (local) | — | Firestore project id. |
+| `GOOGLE_CLOUD_PROJECT` | yes (local) | — | Firestore project id; also the Vertex AI project and default project for the secret. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | optional | — | Path to a service-account JSON, if you prefer that over `gcloud` ADC. |
 | `ADMIN_USERNAME` | no | `officer` | Officer portal login. |
 | `ADMIN_PASSWORD` | no | `rsk2024` | Officer portal login. |
 | `PORT` | no | `8080` | Port to listen on (Cloud Run sets this automatically). |
 
-No API key is needed for **weather** (Open-Meteo) or **place search** (OpenStreetMap Nominatim) — both are keyless; they degrade silently if unreachable.
+By default Gemini calls go through **Vertex AI** using `GOOGLE_CLOUD_PROJECT`, so no `GEMINI_API_KEY` is needed and usage is covered by Google Cloud Free Trial credits (the AI Studio Developer API is explicitly excluded from that credit coverage). The runtime identity needs the `roles/aiplatform.user` IAM role, and the project needs `aiplatform.googleapis.com` enabled — see [Deploy to Google Cloud Run](#deploy-to-google-cloud-run) below. Set `GEMINI_USE_VERTEXAI=false` to fall back to the AI Studio Developer API, providing the key **either** directly (`GEMINI_API_KEY`) **or** via Secret Manager (`GEMINI_API_KEY_SECRET`) — the direct env var takes precedence, and a missing/misconfigured secret never crashes startup (the app just uses its deterministic fallbacks). No API key is needed for **weather** (Open-Meteo) or **place search** (OpenStreetMap Nominatim) — both are keyless.
+
+### Using Google Secret Manager for the Gemini key
+
+Store the key once, then reference it instead of putting it in `.env` or the deploy command:
+
+```bash
+# 1. Create the secret and add your key as a version
+echo -n "<your-gemini-api-key>" | gcloud secrets create gemini-api-key --data-file=-
+
+# 2. Grant the runtime identity read access (Cloud Run's service account, or your
+#    user for local ADC):
+gcloud secrets add-iam-policy-binding gemini-api-key \
+  --member="serviceAccount:<cloud-run-service-account>" \
+  --role="roles/secretmanager.secretAccessor"
+
+# 3a. Local: reference it in .env (leave GEMINI_API_KEY unset)
+#     GEMINI_API_KEY_SECRET=gemini-api-key
+#     GOOGLE_CLOUD_PROJECT=<your-gcp-project-id>
+
+# 3b. Cloud Run — the app reads it from Secret Manager itself:
+gcloud run deploy kisanmate --source . --region asia-south1 --allow-unauthenticated \
+  --set-env-vars GEMINI_API_KEY_SECRET=gemini-api-key
+#   (Alternatively, mount it straight into the env var — no code path needed:
+#    --set-secrets GEMINI_API_KEY=gemini-api-key:latest )
+```
 
 ---
 
@@ -132,18 +189,30 @@ Some tests are **environment-gated and skip cleanly** when their dependency is m
 
 A [`Dockerfile`](Dockerfile) is included (listens on `$PORT`, defaults to 8080).
 
+Gemini defaults to Vertex AI (`GEMINI_USE_VERTEXAI=true`), so the service's own identity needs the `roles/aiplatform.user` role and the project needs the Vertex AI API enabled:
+
+```bash
+gcloud services enable aiplatform.googleapis.com
+
+# Replace with your Cloud Run service account (the default is
+# <PROJECT_NUMBER>-compute@developer.gserviceaccount.com):
+gcloud projects add-iam-policy-binding <your-gcp-project-id> \
+  --member="serviceAccount:<your-cloud-run-service-account>" \
+  --role="roles/aiplatform.user"
+```
+
 ```bash
 gcloud run deploy kisanmate \
   --source . \
   --region asia-south1 \
   --allow-unauthenticated \
-  --set-env-vars GEMINI_API_KEY=<your-key>
+  --set-env-vars GOOGLE_CLOUD_PROJECT=<your-gcp-project-id>
 
 # Then seed the Firestore project once (from a machine with ADC to that project):
 python seed.py && python seed_crops.py
 ```
 
-On Cloud Run, Firestore auth is automatic via the service's identity (no key files) — just ensure the service account can access Firestore. The frontend assets are served `Cache-Control: no-cache` so a new deploy is picked up on refresh.
+On Cloud Run, Firestore and Vertex AI auth are both automatic via the service's identity (no key files) — just ensure the service account has the roles above. The frontend assets are served `Cache-Control: no-cache` so a new deploy is picked up on refresh.
 
 ---
 

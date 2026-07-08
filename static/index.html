@@ -360,6 +360,11 @@
         <span class="action-card-title" data-i18n="recommendCardTitle">What should I grow?</span>
         <span class="action-card-sub" data-i18n="recommendCardSub">Get crop suggestions</span>
       </button>
+      <button type="button" id="go-reports-btn" class="action-card">
+        <svg class="icon icon-md" aria-hidden="true"><use href="#icon-check-circle"></use></svg>
+        <span class="action-card-title" data-i18n="reportsCardTitle">My reports</span>
+        <span class="action-card-sub" data-i18n="reportsCardSub">See your past diagnoses</span>
+      </button>
     </div>
   </section>
 
@@ -555,6 +560,34 @@
     </div>
   </section>
 
+  <!-- Screen 6: my reports (past diagnoses + any RSK officer verdict) -->
+  <section id="screen-reports" hidden aria-labelledby="reports-heading">
+    <h1 id="reports-heading" data-i18n="reportsTitle">Your Reports</h1>
+
+    <div id="reports-body" aria-live="polite">
+      <div id="reports-loading" class="thinking-state">
+        <svg class="icon icon-lg spinner-icon" aria-hidden="true"><use href="#icon-spinner"></use></svg>
+        <p data-i18n="loading">Loading...</p>
+      </div>
+
+      <ul id="reports-list" class="alerts-list" hidden></ul>
+
+      <div id="reports-empty" hidden class="empty-state">
+        <svg class="icon icon-lg" aria-hidden="true"><use href="#icon-check-circle"></use></svg>
+        <p data-i18n="reportsEmpty">You haven't diagnosed a crop yet.</p>
+      </div>
+
+      <div id="reports-error" hidden class="error-state">
+        <svg class="icon icon-lg" aria-hidden="true"><use href="#icon-alert-triangle"></use></svg>
+        <p id="reports-error-msg"></p>
+        <button type="button" id="reports-retry-btn" class="btn btn-primary">
+          <svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
+          <span data-i18n="retry">Try again</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
   <!-- Staged officer-portal view shown during the guided demo's officer beat -->
   <div id="demo-officer" hidden></div>
 </main>
@@ -601,6 +634,17 @@
   <div class="intro-caption-bar">
     <div class="intro-progress" aria-hidden="true"><span id="intro-progress-fill"></span></div>
     <p id="intro-caption" class="intro-caption" aria-live="polite"></p>
+  </div>
+</div>
+
+<!-- One-time popup: an RSK officer has reviewed the farmer's case -->
+<div id="verdict-modal" class="verdict-modal" hidden role="dialog" aria-modal="true" aria-labelledby="verdict-modal-title">
+  <div class="verdict-modal-card">
+    <svg class="icon icon-lg verdict-modal-icon" aria-hidden="true"><use href="#icon-check-circle"></use></svg>
+    <h2 id="verdict-modal-title" class="verdict-modal-title" data-i18n="verdictModalTitle">An officer reviewed your crop</h2>
+    <p id="verdict-modal-body" class="verdict-modal-body"></p>
+    <button type="button" id="verdict-modal-view-btn" class="btn btn-primary btn-block" data-i18n="verdictModalView">See details</button>
+    <button type="button" id="verdict-modal-dismiss-btn" class="btn btn-secondary btn-block" data-i18n="verdictModalDismiss">Close</button>
   </div>
 </div>
 

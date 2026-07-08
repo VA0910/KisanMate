@@ -209,6 +209,10 @@ class Case(BaseModel):
     officer_verdict: Optional[str] = None
     condition: Optional[str] = None
     contagious: Optional[bool] = None
+    # Whether the farmer has already been shown the RSK officer's verdict popup.
+    # Set False when a verdict is recorded (confirm), flipped True once the farmer
+    # has seen it, so the one-time "your case was reviewed" popup fires exactly once.
+    verdict_seen: bool = False
     created_at: Optional[datetime] = None
 
 

@@ -11,7 +11,7 @@ from google import genai
 from google.genai import types
 from pydantic import ValidationError
 
-from config import GEMINI_API_KEY, GEMINI_MODEL
+from config import GEMINI_MODEL, get_genai_client
 from models import VisionOutput
 
 DEFAULT_CONDITIONS = ["late_blight", "early_blight", "nitrogen_deficiency", "other", "healthy"]
@@ -64,14 +64,15 @@ class VisionError(Exception):
 
 
 def _client() -> genai.Client:
-    return genai.Client(api_key=GEMINI_API_KEY)
+    return get_genai_client()
 
 
 def _call_gemini_vision(
     image_bytes: bytes, mime_type: str, candidate_conditions=None, extra_instruction: str = ""
 ) -> VisionOutput:
     prompt = _build_prompt(candidate_conditions, extra_instruction)
-    response = _client().models.generate_content(
+    client = _client()
+    response = client.models.generate_content(
         model=GEMINI_MODEL,
         contents=[types.Part.from_bytes(data=image_bytes, mime_type=mime_type), prompt],
         config=types.GenerateContentConfig(

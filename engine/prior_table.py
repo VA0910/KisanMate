@@ -1,7 +1,13 @@
 """Tomato prior table (PROJECT_SPEC.md "Prior table (tomato) -- deterministic").
 
-prior_score = base + sum(weight * factor_active), normalized across the three
-tracked conditions. No AI, no I/O -- a pure function of the fusion context.
+prior_score = base + sum(weight * factor_active), normalized across the tracked
+conditions. No AI, no I/O -- a pure function of the fusion context.
+
+"healthy" is tracked alongside the three diseases (flat base, no weather/soil
+bonuses -- those factors only encode disease risk) so that a confident "healthy"
+vision reading can actually win the posterior instead of being silently dropped
+from consideration and forcing a disease label even when the photo shows none
+of the tracked diseases.
 """
 from models import Condition, FusionContext
 
@@ -9,6 +15,7 @@ TOMATO_CONDITIONS: tuple[Condition, ...] = (
     "late_blight",
     "early_blight",
     "nitrogen_deficiency",
+    "healthy",
 )
 
 # Whether each tomato condition can spread farmer-to-farmer; drives both the
@@ -39,7 +46,7 @@ def is_contagious(condition: str) -> bool:
 
 
 def compute_prior(context: FusionContext) -> dict[Condition, float]:
-    """Return normalized prior scores for late_blight / early_blight / nitrogen_deficiency."""
+    """Return normalized prior scores for late_blight / early_blight / nitrogen_deficiency / healthy."""
     scores: dict[Condition, float] = {c: 1.0 for c in TOMATO_CONDITIONS}  # base
 
     temp = context.weather.temp_c

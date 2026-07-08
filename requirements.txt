@@ -3,6 +3,7 @@ uvicorn[standard]
 python-multipart
 google-genai
 google-cloud-firestore
+google-cloud-secret-manager
 pydantic
 python-dotenv
 pytest

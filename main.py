@@ -501,34 +501,42 @@ def post_telemetry(entry: TelemetryIn):
     return {"ok": True}
 
 
-def _farmer_crop_ids(farmer: Farmer) -> set[str]:
-    ids = {c.crop_id.strip().lower() for c in (farmer.current_crops or []) if c.crop_id}
+def _farmer_crop_planting_dates(farmer: Farmer) -> dict[str, Optional[str]]:
+    """Lowercased crop_id -> planting_date for every crop the farmer currently
+    grows (from current_crops; the legacy single `crop` field has no date)."""
+    dates = {c.crop_id.strip().lower(): c.planting_date for c in (farmer.current_crops or []) if c.crop_id}
     if farmer.crop:
-        ids.add(farmer.crop.strip().lower())
-    return ids
+        dates.setdefault(farmer.crop.strip().lower(), None)
+    return dates
 
 
 def _resolve_diagnosed_crop(vision: "VisionOutput", farmer: Farmer, context: FusionContext) -> None:
     """Identify the plant and point the diagnosis at the right crop profile.
 
     Sets `vision.matches_profile` authoritatively (never trusting the model to
-    know the farmer's crops) and, when the photo is a plant the farmer doesn't
-    grow, repoints `context.crop`/`susceptible_diseases` at the identified plant's
-    profile from the crops DB (or leaves them general if it isn't in the DB).
-    Unidentifiable plants are left for the fusion decision to escalate.
+    know the farmer's crops) and, whenever the photo isn't the crop `context`
+    was originally built for, repoints `context.crop`/`susceptible_diseases`/
+    growth stage at the identified plant's own profile from the crops DB (or
+    leaves them general if it isn't in the DB). This also covers a multi-crop
+    farmer photographing a DIFFERENT one of their own current crops than the
+    one `context` defaulted to -- that still needs repointing, since "the
+    farmer grows this somewhere" is not the same as "context is already built
+    for it". Unidentifiable plants are left for the fusion decision to escalate.
     """
     identified = (vision.identified_crop or "").strip().lower()
     if not identified or identified == "unidentifiable":
         vision.matches_profile = False
         return
 
-    farmer_crops = _farmer_crop_ids(farmer)
-    matches = identified in farmer_crops
-    vision.matches_profile = matches
-    if matches:
-        return  # keep the profile-built context (farmer's own crop)
+    farmer_crop_dates = _farmer_crop_planting_dates(farmer)
+    vision.matches_profile = identified in farmer_crop_dates
 
-    # A different plant: diagnose using its own profile from the crops DB.
+    if identified == (context.crop or "").strip().lower():
+        return  # context is already built for this exact crop
+
+    # A different plant than context's default -- point at ITS OWN profile
+    # from the crops DB (diseases + growth stage), whether or not it's also
+    # one of the farmer's other current crops.
     context.crop = identified
     try:
         crop_doc = firestore_client.get_crop(identified)
@@ -536,6 +544,15 @@ def _resolve_diagnosed_crop(vision: "VisionOutput", farmer: Farmer, context: Fus
         _log_event("diagnose_crop_lookup_fallback", "context_data", str(exc), fallback_used=True)
         crop_doc = None
     context.susceptible_diseases = list(crop_doc.susceptible_diseases) if crop_doc is not None else []
+
+    planting_date = farmer_crop_dates.get(identified)
+    stage = (
+        compute_stage(planting_date, crop_doc.cycle_days, crop_doc.growth_stages)
+        if planting_date and crop_doc is not None
+        else None
+    )
+    context.growth_stage = stage["name"] if stage else None
+    context.crop_day = stage["day"] if stage else None
 
 
 # Cap on the stored photo so a case doc stays well under Firestore's 1MB limit.
@@ -608,26 +625,41 @@ async def diagnose(
         image_data_url = _encode_image(image_bytes, image.content_type)
         context = build_context(farmer)
 
-        # Candidate diseases come from the farmer's crop in the crops DB (Option 2),
-        # so vision scores THAT crop's diseases -- not a fixed tomato list.
+        # We don't yet know which plant the photo shows, so this first pass is
+        # scoped to the farmer's DEFAULT crop's diseases (Option 2). If the photo
+        # turns out to be a different plant, we re-score below against the RIGHT
+        # crop's diseases -- otherwise the model can only ever pick from the wrong
+        # disease list and misses the actual disease (e.g. wheat rust scored
+        # against the tomato list).
+        mime = image.content_type or "image/jpeg"
         candidates = _diagnosis_candidates(context.crop, context.susceptible_diseases)
 
         vision_result = None
         try:
-            vision_result = diagnose_image(
-                image_bytes, mime_type=image.content_type or "image/jpeg", candidate_conditions=candidates
-            )
+            vision_result = diagnose_image(image_bytes, mime_type=mime, candidate_conditions=candidates)
         except VisionError as exc:
             _log_fallback("vision_fallback", str(exc))
 
-        # Plant identification first: figure out which plant the photo shows, set
-        # matches_profile authoritatively, and diagnose against that plant's crop
-        # profile -- the farmer's crop if it matches, else the identified plant
-        # (PROJECT_SPEC.md "plant identification & multi-crop"). This may repoint
-        # context.crop/susceptible_diseases, so recompute the candidate set.
+        # Plant identification: figure out which plant the photo shows, set
+        # matches_profile authoritatively, and point the diagnosis at that plant's
+        # crop profile (PROJECT_SPEC.md "plant identification & multi-crop"). This
+        # may repoint context.crop/susceptible_diseases.
         if vision_result is not None:
             _resolve_diagnosed_crop(vision_result, farmer, context)
-            candidates = _diagnosis_candidates(context.crop, context.susceptible_diseases)
+            rescoped = _diagnosis_candidates(context.crop, context.susceptible_diseases)
+            # The photo is a different plant than the first pass assumed: re-run
+            # vision scoped to the identified crop's OWN diseases, so the model can
+            # actually report them (the first pass was locked to the wrong list).
+            if set(rescoped) != set(candidates):
+                try:
+                    rescored = diagnose_image(image_bytes, mime_type=mime, candidate_conditions=rescoped)
+                    _resolve_diagnosed_crop(rescored, farmer, context)
+                    vision_result = rescored
+                except VisionError as exc:
+                    # Keep the first-pass reading; fusion still runs against the
+                    # repointed crop (it just can't confirm a disease it never saw).
+                    _log_fallback("vision_rescope_fallback", str(exc))
+            candidates = rescoped
 
         fusion_result = fuse(vision_result, context, candidates)
 
@@ -734,6 +766,71 @@ def list_cases():
         _log_event("cases_list_error", "api", str(exc))
         raise HTTPException(status_code=503, detail="cases temporarily unavailable")
     return {"cases": [_case_row(case, farmers_by_id) for case in cases]}
+
+
+def _farmer_case_row(case: Case) -> dict:
+    """Flatten one of the farmer's OWN cases for their "My reports" list.
+
+    `condition` always reflects the current authoritative read: the RSK
+    officer's verdict once the case is confirmed, else the AI's fused top guess
+    (PROJECT_SPEC.md: "the [officer's] verdict is authoritative and flows back
+    to the farmer").
+    """
+    return {
+        "case_id": case.id,
+        "created_at": case.created_at,
+        "photo": case.image_data,
+        "crop": case.context.crop if case.context else None,
+        "status": case.status,
+        "condition": case.officer_verdict or (case.fusion.top if case.fusion else None),
+        "decision": case.fusion.decision if case.fusion else None,
+        "contagious": case.contagious,
+        "officer_reviewed": case.status == "confirmed" and case.officer_verdict is not None,
+    }
+
+
+@app.get("/api/farmers/{farmer_id}/cases")
+def list_farmer_cases(farmer_id: str):
+    """A farmer's own diagnosis history ("My reports"), newest first -- how an
+    RSK officer's confirm/override verdict makes its way back to the farmer,
+    since this is a poll-based prototype with no push/SMS channel."""
+    try:
+        cases = firestore_client.list_cases_by_farmer(farmer_id)
+    except Exception as exc:
+        _log_event("farmer_cases_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="reports temporarily unavailable")
+    return {"cases": [_farmer_case_row(case) for case in cases]}
+
+
+@app.get("/api/farmers/{farmer_id}/notifications")
+def list_farmer_notifications(farmer_id: str):
+    """Officer verdicts the farmer hasn't seen yet -- drives the one-time
+    "your case was reviewed" popup on the farmer's next login/reload after an
+    RSK officer confirmed or overrode one of their cases. Newest first."""
+    try:
+        cases = firestore_client.list_cases_by_farmer(farmer_id)
+    except Exception as exc:
+        _log_event("farmer_notifications_error", "api", str(exc))
+        # A notifications failure must never block the farmer's app -- degrade to
+        # "nothing new" (the verdict is still visible under My reports).
+        return {"notifications": []}
+    unseen = [
+        _farmer_case_row(c)
+        for c in cases
+        if c.status == "confirmed" and c.officer_verdict is not None and not c.verdict_seen
+    ]
+    return {"notifications": unseen}
+
+
+@app.post("/api/cases/{case_id}/verdict-seen")
+def mark_verdict_seen(case_id: str):
+    """Acknowledge that the farmer has been shown a verdict popup, so it never
+    fires again (best-effort: a write failure must not disrupt the farmer)."""
+    try:
+        firestore_client.update_case(case_id, {"verdict_seen": True})
+    except Exception as exc:
+        _log_event("verdict_seen_write_error", "api", str(exc))
+    return {"case_id": case_id, "verdict_seen": True}
 
 
 @app.post("/api/cases/{case_id}/dispute")
