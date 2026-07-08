@@ -166,6 +166,21 @@ def test_cases_expose_both_categories_with_photo_and_candidates(fake_store):
     assert review["visible_symptoms"]
 
 
+def test_case_flags_photo_not_analyzed_when_vision_missing(fake_store, monkeypatch):
+    # A case whose vision is None (Gemini couldn't read the photo) must be flagged
+    # so the portal doesn't present the prior-only top as a confident AI diagnosis.
+    no_vision = _case("review-1", "ramesh", "escalated")
+    no_vision.vision = None
+    monkeypatch.setattr(
+        firestore_client, "list_cases_by_status",
+        lambda statuses: [no_vision] if "escalated" in statuses else [],
+    )
+    rows = client.get("/api/cases").json()["cases"]
+    review = next(r for r in rows if r["status"] == "escalated")
+    assert review["photo_analyzed"] is False
+    assert review["candidates"] == []
+
+
 def test_confirm_review_case_fires_alert_to_lakshmi(fake_store):
     resp = client.post("/api/confirm", json={"case_id": "review-1", "officer_verdict": "late_blight"})
     data = resp.json()

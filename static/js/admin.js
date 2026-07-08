@@ -212,54 +212,69 @@
     if (row.image_note) el(card, "note").textContent = row.image_note;
     else el(card, "noteRow").hidden = true;
 
-    el(card, "aiCondition").textContent = conditionLabel(row.ai_top_condition);
+    // When the AI never read the photo (vision unavailable), the fusion top is a
+    // prior-only ENVIRONMENT estimate, not a diagnosis of the image. Don't present
+    // it as a confident AI verdict -- say so plainly and have the officer diagnose.
+    var analyzed = row.photo_analyzed !== false;
+    var confRow = card.querySelector(".conf-row");
 
-    var conf = typeof row.ai_confidence === "number" ? row.ai_confidence : 0;
-    var pct = Math.round(conf * 100);
-    el(card, "confFill").style.width = pct + "%";
-    el(card, "confNum").textContent = pct + "%";
-    el(card, "confBar").setAttribute("aria-label", "AI confidence: " + pct + " percent");
+    if (analyzed) {
+      el(card, "aiCondition").textContent = conditionLabel(row.ai_top_condition);
+      var conf = typeof row.ai_confidence === "number" ? row.ai_confidence : 0;
+      var pct = Math.round(conf * 100);
+      el(card, "confFill").style.width = pct + "%";
+      el(card, "confNum").textContent = pct + "%";
+      el(card, "confBar").setAttribute("aria-label", "AI confidence: " + pct + " percent");
 
-    var decision = el(card, "decision");
-    if (row.ai_decision) {
-      decision.textContent = DECISION_LABELS[row.ai_decision] || row.ai_decision;
-      decision.classList.add(row.ai_decision === "advise" ? "decision-advise" : "decision-escalate");
-    } else {
-      decision.hidden = true;
-    }
+      var decision = el(card, "decision");
+      if (row.ai_decision) {
+        decision.textContent = DECISION_LABELS[row.ai_decision] || row.ai_decision;
+        decision.classList.add(row.ai_decision === "advise" ? "decision-advise" : "decision-escalate");
+      } else {
+        decision.hidden = true;
+      }
 
-    var candidates = row.candidates || [];
-    if (candidates.length) {
-      var cl = el(card, "candidates");
-      candidates.slice().sort(function (a, b) { return (b.confidence || 0) - (a.confidence || 0); })
-        .forEach(function (c) {
-          var li = document.createElement("li");
-          li.className = "candidate";
-          li.textContent = conditionLabel(c.condition) + " — " + Math.round((c.confidence || 0) * 100) + "%";
-          cl.appendChild(li);
+      var candidates = row.candidates || [];
+      if (candidates.length) {
+        var cl = el(card, "candidates");
+        candidates.slice().sort(function (a, b) { return (b.confidence || 0) - (a.confidence || 0); })
+          .forEach(function (c) {
+            var li = document.createElement("li");
+            li.className = "candidate";
+            li.textContent = conditionLabel(c.condition) + " — " + Math.round((c.confidence || 0) * 100) + "%";
+            cl.appendChild(li);
+          });
+      } else {
+        el(card, "candidatesWrap").hidden = true;
+      }
+
+      var symptoms = row.visible_symptoms || [];
+      if (symptoms.length) {
+        var chips = el(card, "symptoms");
+        symptoms.forEach(function (s) {
+          var chip = document.createElement("span");
+          chip.className = "chip";
+          chip.textContent = s;
+          chips.appendChild(chip);
         });
+      } else {
+        el(card, "symptomsWrap").hidden = true;
+      }
     } else {
+      el(card, "aiCondition").textContent = "Photo not analysed";
+      if (confRow) confRow.hidden = true;
+      var decisionEl = el(card, "decision");
+      decisionEl.textContent = "The AI couldn't read this photo, so it was escalated — please set the diagnosis.";
+      decisionEl.classList.add("decision-escalate");
       el(card, "candidatesWrap").hidden = true;
-    }
-
-    var symptoms = row.visible_symptoms || [];
-    if (symptoms.length) {
-      var chips = el(card, "symptoms");
-      symptoms.forEach(function (s) {
-        var chip = document.createElement("span");
-        chip.className = "chip";
-        chip.textContent = s;
-        chips.appendChild(chip);
-      });
-    } else {
       el(card, "symptomsWrap").hidden = true;
     }
 
-    wireVerdict(card, row);
+    wireVerdict(card, row, analyzed);
     return card;
   }
 
-  function wireVerdict(card, row) {
+  function wireVerdict(card, row, analyzed) {
     var form = el(card, "verdictForm");
     var confirmBtn = el(card, "confirmBtn");
     var overrideToggle = el(card, "overrideToggle");
@@ -268,14 +283,22 @@
     var overrideLabel = el(card, "overrideLabel");
     var aiTop = row.ai_top_condition;
 
-    if (aiTop) {
+    // Only offer "Confirm the AI's pick" when the AI actually read the photo.
+    if (analyzed && aiTop) {
       el(card, "confirmLabel").textContent = "Confirm as " + conditionLabel(aiTop);
       confirmBtn.addEventListener("click", function () { submitVerdict(card, row.case_id, aiTop); });
     } else {
-      confirmBtn.disabled = true;
+      confirmBtn.hidden = true;
+      overrideToggle.textContent = "";
+      var oi = document.createElement("span");
+      oi.textContent = "Set diagnosis";
+      overrideToggle.appendChild(oi);
     }
 
-    CONDITIONS.filter(function (c) { return c !== aiTop; }).forEach(function (c) {
+    // Override options: exclude the AI's top only when it actually analysed the
+    // photo (Confirm already covers it); otherwise offer every condition.
+    var choices = (analyzed && aiTop) ? CONDITIONS.filter(function (c) { return c !== aiTop; }) : CONDITIONS.slice();
+    choices.forEach(function (c) {
       var opt = document.createElement("option");
       opt.value = c;
       opt.textContent = conditionLabel(c);

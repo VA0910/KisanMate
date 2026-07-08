@@ -48,6 +48,19 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="KisanMate API")
 
+
+@app.middleware("http")
+async def revalidate_frontend_assets(request, call_next):
+    """Force browsers to revalidate the HTML/CSS/JS (no aggressive caching), so a
+    new deploy is picked up immediately instead of a stale cached bundle leaving
+    the UI on old behavior. Etags still make revalidation cheap (304s)."""
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/static") or path in ("/", "/admin", "/rsk", "/log"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 # The farmer-facing frontend: plain HTML/CSS/JS, no build step (PROJECT_SPEC.md).
 # Mounted under /static so it never shadows the /api/* routes below; "/" itself
 # serves static/index.html so the app still opens at the site root.
@@ -666,6 +679,10 @@ def _case_row(case: Case, farmers_by_id: dict[str, Farmer]) -> dict:
         "image_note": case.image_note,
         "photo": case.image_data,
         "status": case.status,
+        # Whether Gemini actually analysed the photo. When false, the fusion top is
+        # a prior-only (environment) estimate, NOT a read of the image, so the
+        # portal must not present it as a confident AI diagnosis.
+        "photo_analyzed": bool(case.vision),
         "ai_top_condition": top,
         "ai_confidence": case.fusion.confidence if case.fusion else None,
         "ai_decision": case.fusion.decision if case.fusion else None,
