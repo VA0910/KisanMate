@@ -10,10 +10,16 @@ import demo
 import firestore_client
 import services
 import weather as weather_source
-from engine.crop_scorer import score_crops
+from engine.crop_recommender import current_season, rank_crops
 from engine.fusion import fuse
 from engine.prior_table import CONTAGIOUS
-from explain import ExplainError, explain_fusion, template_message
+from explain import (
+    ExplainError,
+    RecommendExplainError,
+    explain_fusion,
+    explain_recommendations,
+    template_message,
+)
 from models import Case, ContextLocation, Farmer, FusionContext, Soil, Telemetry
 from vision import VisionError, diagnose_image
 
@@ -48,11 +54,29 @@ class ConfirmRequest(BaseModel):
 
 
 class RecommendRequest(BaseModel):
+    """Inputs for a crop recommendation.
+
+    The ranking matches soil_type, season, and region against the crops
+    collection. `season` defaults to the current cropping season when omitted.
+    The `soil`/`agro_zone`/groundwater/rainfall fields are the legacy names the
+    current frontend form still sends; they are accepted and mapped so nothing
+    breaks while the profile-driven UI is built in a later step.
+    """
     farmer_id: str
-    soil: str
-    groundwater_depth_m: float
-    agro_zone: str
-    seasonal_rainfall_mm: float
+    soil_type: Optional[str] = None
+    region: Optional[str] = None
+    season: Optional[str] = None
+    # legacy field names (still sent by the current recommend form)
+    soil: Optional[str] = None
+    agro_zone: Optional[str] = None
+    groundwater_depth_m: Optional[float] = None
+    seasonal_rainfall_mm: Optional[float] = None
+
+    def resolved_soil(self) -> Optional[str]:
+        return self.soil_type or self.soil
+
+    def resolved_region(self) -> Optional[str]:
+        return self.region or self.agro_zone
 
 
 class DemoRequest(BaseModel):
@@ -320,22 +344,69 @@ def get_alerts(farmer_id: str):
     return {"farmer_id": farmer_id, "alerts": payload}
 
 
+@app.get("/api/crops")
+def list_crops():
+    """Every crop in the crops collection -- the data backbone (PROJECT_SPEC.md)."""
+    try:
+        crops = firestore_client.list_crops()
+    except Exception as exc:
+        _log_event("crops_list_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="crops temporarily unavailable")
+    return {"crops": [crop.model_dump() for crop in crops]}
+
+
+@app.get("/api/crops/{crop_id}")
+def get_crop(crop_id: str):
+    """A single crop's full detail (names, seasons, cycle, stages, diseases)."""
+    try:
+        crop = firestore_client.get_crop(crop_id)
+    except Exception as exc:
+        _log_event("crop_get_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="crop temporarily unavailable")
+    if crop is None:
+        raise HTTPException(status_code=404, detail="crop not found")
+    return crop.model_dump()
+
+
 @app.post("/api/recommend")
 def recommend(request: RecommendRequest):
-    # Pure rule engine (no I/O), but wrapped anyway so no endpoint can ever leak a
-    # 500: on the off chance scoring raises, the app shows its kind retry state.
+    """Rank candidate crops FROM the crops collection for this farmer's field.
+
+    The ranking is deterministic (engine.crop_recommender.rank_crops: match
+    soil_type + current season + region). Gemini only rewrites the reason text on
+    top; if it fails we log a fallback and keep the deterministic reasons, so the
+    farmer always gets a useful, grounded answer (PROJECT_SPEC.md layers 1-3).
+    """
+    season = request.season or current_season()
     try:
-        recommendations = score_crops(
-            soil=request.soil,
-            groundwater_depth_m=request.groundwater_depth_m,
-            agro_zone=request.agro_zone,
-            seasonal_rainfall_mm=request.seasonal_rainfall_mm,
+        crops = firestore_client.list_crops()
+        recommendations = rank_crops(
+            crops,
+            soil_type=request.resolved_soil(),
+            season=season,
+            region=request.resolved_region(),
         )
     except Exception as exc:
         _log_event("recommend_error", "deterministic", str(exc))
         raise HTTPException(status_code=503, detail="recommendation temporarily unavailable")
+
+    # AI content layer: warm reason text on top of the deterministic reasons.
+    try:
+        farmer = firestore_client.get_farmer(request.farmer_id)
+        lang = farmer.lang if farmer else "en"
+    except Exception:
+        lang = "en"
+    try:
+        reasons = explain_recommendations(recommendations, lang)
+        for rec in recommendations:
+            if rec.crop in reasons and reasons[rec.crop].strip():
+                rec.reason = reasons[rec.crop].strip()
+    except RecommendExplainError as exc:
+        _log_fallback("recommend_explain_fallback", str(exc))
+
     return {
         "farmer_id": request.farmer_id,
+        "season": season,
         "recommendations": [rec.model_dump() for rec in recommendations],
     }
 

@@ -126,7 +126,11 @@ def test_confirm_never_500s_when_firestore_dies(monkeypatch):
 
 
 def test_recommend_never_500s(monkeypatch):
-    monkeypatch.setattr(main, "score_crops", lambda **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    # The crops collection is the recommender's input; if it can't be loaded the
+    # endpoint must degrade to a structured 503, never leak a 500.
+    monkeypatch.setattr(
+        firestore_client, "list_crops", lambda: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
     monkeypatch.setattr(firestore_client, "log_telemetry", lambda e: "t")
     resp = client.post(
         "/api/recommend",

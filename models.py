@@ -101,12 +101,52 @@ class FusionOutput(BaseModel):
     evidence: FusionEvidence
 
 
-# --- crop recommendation (engine/crop_scorer.py output) ---------------------
+# --- firestore: crops/{crop_id} ---------------------------------------------
+
+class CropNames(BaseModel):
+    en: str
+    hi: str
+    te: str
+
+
+class GrowthStage(BaseModel):
+    name: str
+    start_day: int
+    care_note: str
+
+
+class Crop(BaseModel):
+    """A crop in the crops/{crop_id} collection (PROJECT_SPEC.md).
+
+    This single collection is the data backbone: it feeds crop recommendations
+    (soil/season/region match), the diagnosis prior and community-alert crop
+    filter (susceptible_diseases), and reminders (cycle_days + growth_stages).
+    """
+    id: Optional[str] = None
+    names: CropNames
+    seasons: list[Literal["kharif", "rabi", "zaid"]] = Field(default_factory=list)
+    soil_types: list[str] = Field(default_factory=list)
+    water_need: Literal["low", "medium", "high"]
+    regions: list[str] = Field(default_factory=list)
+    cycle_days: int
+    growth_stages: list[GrowthStage] = Field(default_factory=list)
+    # Condition ids the crop is susceptible to, e.g. "late_blight".
+    # nitrogen_deficiency is a condition but NOT a disease -- never listed here.
+    susceptible_diseases: list[str] = Field(default_factory=list)
+
+
+# --- crop recommendation (engine output) ------------------------------------
 
 class CropRecommendation(BaseModel):
     crop: str
     score: int
     reason_code: str
+    # Human-readable reason (Gemini-written; deterministic string as fallback).
+    reason: Optional[str] = None
+    # Which deterministic criteria matched: any of "soil", "season", "region".
+    matched: list[str] = Field(default_factory=list)
+    # Crop names carried through for the UI (from the crops collection).
+    names: Optional[CropNames] = None
 
 
 # --- firestore: farmers/{id} -------------------------------------------------

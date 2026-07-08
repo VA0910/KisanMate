@@ -9,9 +9,10 @@ from typing import Optional
 
 from google.cloud import firestore
 
-from models import Alert, Case, Farmer, Telemetry
+from models import Alert, Case, Crop, Farmer, Telemetry
 
 FARMERS_COLLECTION = "farmers"
+CROPS_COLLECTION = "crops"
 CASES_COLLECTION = "cases"
 ALERTS_COLLECTION = "alerts"
 TELEMETRY_COLLECTION = "telemetry"
@@ -42,6 +43,28 @@ def get_farmer(farmer_id: str) -> Optional[Farmer]:
 def list_farmers() -> list[Farmer]:
     docs = get_client().collection(FARMERS_COLLECTION).stream()
     return [Farmer(id=doc.id, **doc.to_dict()) for doc in docs]
+
+
+# --- crops --------------------------------------------------------------------
+
+def upsert_crop(crop: Crop) -> str:
+    """Write a crop, overwriting any existing doc with the same id (idempotent)."""
+    collection = get_client().collection(CROPS_COLLECTION)
+    doc_ref = collection.document(crop.id) if crop.id else collection.document()
+    doc_ref.set(crop.model_dump(exclude={"id"}))
+    return doc_ref.id
+
+
+def get_crop(crop_id: str) -> Optional[Crop]:
+    doc = get_client().collection(CROPS_COLLECTION).document(crop_id).get()
+    if not doc.exists:
+        return None
+    return Crop(id=doc.id, **doc.to_dict())
+
+
+def list_crops() -> list[Crop]:
+    docs = get_client().collection(CROPS_COLLECTION).stream()
+    return [Crop(id=doc.id, **doc.to_dict()) for doc in docs]
 
 
 # --- cases ---------------------------------------------------------------------

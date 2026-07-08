@@ -5,10 +5,12 @@ farmer. It only narrates the fusion decision -- it never changes the diagnosis,
 confidence, or decision. If Gemini fails, template_message() is the deterministic
 fallback (layer 1 / layer 3 of the spec: templates + silent fallback).
 """
+import json
+
 from google import genai
 
 from config import GEMINI_API_KEY, GEMINI_MODEL
-from models import FusionOutput
+from models import CropRecommendation, FusionOutput
 
 LANGUAGE_NAMES = {"en": "English", "hi": "Hindi", "te": "Telugu"}
 
@@ -72,6 +74,66 @@ _TEMPLATES = {
 
 class ExplainError(Exception):
     """Raised when Gemini fails to produce an explanation message."""
+
+
+class RecommendExplainError(Exception):
+    """Raised when Gemini fails to produce recommendation reason text."""
+
+
+RECOMMEND_SYSTEM_INSTRUCTION = """You are KisanMate, a friendly farm assistant speaking to a
+smallholder farmer in India. A separate rule-based system has ALREADY ranked crops for this
+farmer's field. For each crop you are given the deterministic criteria it matched (some of:
+soil type, current season, area). Your only job is to write one short, warm reason per crop
+explaining why it suits this farmer's field.
+
+Rules you must always follow:
+- Write only in the requested language, in one short plain sentence per crop that makes sense
+  read aloud to someone with limited literacy.
+- Ground every reason ONLY in the matched criteria you are given (soil / season / area). Never
+  invent facts, yields, prices, chemicals, or dosages.
+- Do not re-rank the crops or contradict the ranking; only explain it.
+- Keep each reason under 20 words.
+- Return ONLY a JSON object mapping each crop id to its reason string, nothing else."""
+
+
+def explain_recommendations(recommendations: list[CropRecommendation], language: str) -> dict:
+    """Ask Gemini to write a warm reason per ranked crop. Raises RecommendExplainError on failure.
+
+    Returns {crop_id: reason_text}. The deterministic reason already on each
+    recommendation is the fallback the caller keeps if this raises.
+    """
+    language_name = LANGUAGE_NAMES.get(language, "English")
+    items = [
+        {
+            "crop_id": rec.crop,
+            "crop_name": rec.names.en if rec.names else rec.crop,
+            "matched": rec.matched,
+        }
+        for rec in recommendations
+    ]
+    prompt = (
+        f"{RECOMMEND_SYSTEM_INSTRUCTION}\n\n"
+        f"Respond in: {language_name}\n\n"
+        f"Crops and the criteria each matched (JSON):\n{json.dumps(items)}"
+    )
+    try:
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+        text = (response.text or "").strip()
+        if not text:
+            raise RecommendExplainError("Gemini returned an empty recommendation explanation")
+        # Tolerate a ```json fenced block around the object.
+        if text.startswith("```"):
+            text = text.strip("`")
+            text = text[text.find("{"):]
+        reasons = json.loads(text)
+        if not isinstance(reasons, dict):
+            raise RecommendExplainError("Gemini recommendation explanation was not a JSON object")
+        return {str(k): str(v) for k, v in reasons.items()}
+    except RecommendExplainError:
+        raise
+    except Exception as exc:
+        raise RecommendExplainError(f"Gemini recommendation explain call failed: {exc}") from exc
 
 
 def template_message(decision: str, language: str) -> str:
