@@ -9,7 +9,7 @@ from math import atan2, cos, radians, sin, sqrt
 from typing import Optional
 
 from engine.fusion import STRONG_THRESHOLD
-from engine.prior_table import CONTAGIOUS, compute_prior
+from engine.prior_table import compute_prior, is_contagious
 from models import Alert, Case, Farmer, LatLng
 
 EARTH_RADIUS_KM = 6371.0
@@ -63,7 +63,7 @@ def propagation(
     """
     if confirmed_case.condition is None or confirmed_case.context is None:
         return None
-    if not CONTAGIOUS.get(confirmed_case.condition, False):
+    if not is_contagious(confirmed_case.condition):
         return None
     if not _confirmation_gate_passed(confirmed_case):
         return None

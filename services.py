@@ -10,7 +10,7 @@ from typing import Callable, Optional
 
 import firestore_client
 from engine.alert_engine import propagation
-from engine.prior_table import CONTAGIOUS
+from engine.prior_table import is_contagious
 from models import Case, Farmer
 
 
@@ -31,7 +31,7 @@ def confirm_and_propagate(
     is reported via error_logger and swallowed -- it must never fail the
     confirmation itself.
     """
-    contagious = CONTAGIOUS.get(verdict, False)
+    contagious = is_contagious(verdict)
 
     firestore_client.update_case(
         case.id,

@@ -6,7 +6,7 @@ layer feeds this module inputs -- it must never reach in and change this logic.
 """
 from typing import Optional
 
-from engine.prior_table import CONTAGIOUS, TOMATO_CONDITIONS, compute_prior
+from engine.prior_table import TOMATO_CONDITIONS, compute_prior, is_contagious
 from models import (
     Condition,
     FusionContext,
@@ -33,16 +33,36 @@ def _context_completeness(context: FusionContext) -> list[str]:
     ]
 
 
-def fuse(vision: Optional[VisionOutput], context: FusionContext) -> FusionOutput:
+def fuse(
+    vision: Optional[VisionOutput],
+    context: FusionContext,
+    candidates: Optional[list[str]] = None,
+) -> FusionOutput:
     """Fuse a (possibly missing) vision reading with the deterministic prior.
 
-    Passing vision=None is the fallback path for when Gemini's vision call is
-    unreachable or still invalid after one retry: image quality is treated as
-    poor and the posterior collapses to the prior alone, which -- combined with
-    the decision rule below -- always escalates to the RSK officer.
+    `candidates` are the conditions to consider -- the identified crop's diseases
+    from the crops DB (Option 2), e.g. ["rice_blast","bacterial_leaf_blight",
+    "healthy"]. When omitted (or exactly the tomato set) we use the calibrated
+    tomato prior; otherwise there is no calibrated environmental prior, so the
+    prior is uniform and fusion is vision-led (uncertain readings still escalate).
+
+    Passing vision=None is the fallback path when Gemini's vision call is
+    unreachable: image quality is treated as poor and the posterior collapses to
+    the prior alone, which -- combined with the decision rule below -- escalates.
     """
-    prior = compute_prior(context)
-    prior_top: Condition = max(prior, key=prior.get)
+    conditions = list(dict.fromkeys(candidates)) if candidates else list(TOMATO_CONDITIONS)
+    if not conditions:
+        conditions = list(TOMATO_CONDITIONS)
+
+    # Use the calibrated tomato prior only for the tomato condition set; any other
+    # crop's disease set gets a uniform (vision-led) prior.
+    calibrated = set(conditions) == set(TOMATO_CONDITIONS)
+    if calibrated:
+        prior = compute_prior(context)
+        prior_top = max(prior, key=prior.get)
+    else:
+        prior = {c: 1.0 / len(conditions) for c in conditions}
+        prior_top = "unknown"
 
     # The plant being unidentifiable is treated like a poor image: we can't
     # responsibly diagnose a plant we can't recognise, so escalate (PROJECT_SPEC.md).
@@ -65,17 +85,18 @@ def fuse(vision: Optional[VisionOutput], context: FusionContext) -> FusionOutput
     # +VISION_EPSILON keeps every condition reachable instead of hard-zeroing it, and cancels out of
     # the renormalization when vision contributes nothing -- so vision=None reduces to prior-only.
     combined = {
-        c: (vision_confidence.get(c, 0.0) + VISION_EPSILON) * prior[c] for c in TOMATO_CONDITIONS
+        c: (vision_confidence.get(c, 0.0) + VISION_EPSILON) * prior[c] for c in conditions
     }
     combined_total = sum(combined.values()) or 1.0
     posterior = {c: score / combined_total for c, score in combined.items()}
 
     ranked = sorted(posterior.items(), key=lambda item: item[1], reverse=True)
     top, confidence = ranked[0]
-    margin = confidence - ranked[1][1]
+    margin = confidence - (ranked[1][1] if len(ranked) > 1 else 0.0)
 
     vision_strong = vision_confidence.get(vision_top, 0.0) >= STRONG_THRESHOLD
-    prior_strong = prior[prior_top] >= STRONG_THRESHOLD
+    # Only a calibrated prior can be "strong" enough to conflict with vision.
+    prior_strong = calibrated and prior[prior_top] >= STRONG_THRESHOLD
     conflict = vision_top != prior_top and vision_strong and prior_strong
 
     decision = (
@@ -89,15 +110,15 @@ def fuse(vision: Optional[VisionOutput], context: FusionContext) -> FusionOutput
 
     return FusionOutput(
         posterior=[
-            PosteriorEntry(condition=c, score=posterior[c], contagious=CONTAGIOUS[c])
-            for c in TOMATO_CONDITIONS
+            PosteriorEntry(condition=c, score=posterior[c], contagious=is_contagious(c))
+            for c in conditions
         ],
         top=top,
         confidence=confidence,
         margin=margin,
         conflict=conflict,
         decision=decision,
-        alert_eligible=CONTAGIOUS[top],
+        alert_eligible=is_contagious(top),
         evidence=FusionEvidence(
             vision_top=vision_top,
             prior_top=prior_top,

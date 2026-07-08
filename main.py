@@ -20,7 +20,7 @@ from engine.crop_recommender import current_season, rank_crops
 from engine.fusion import fuse
 from engine.growth import compute_stage
 from engine.reminders import reminders_for_farmer
-from engine.prior_table import CONTAGIOUS
+from engine.prior_table import TOMATO_CONDITIONS, is_contagious
 from explain import (
     ExplainError,
     RecommendExplainError,
@@ -552,6 +552,22 @@ def _encode_image(image_bytes: bytes, content_type: Optional[str]) -> Optional[s
     return f"data:{mime};base64,{base64.b64encode(image_bytes).decode('ascii')}"
 
 
+def _diagnosis_candidates(crop_id: Optional[str], susceptible_diseases: list) -> list:
+    """The conditions to diagnose for a crop (Option 2, crop-driven).
+
+    Tomato keeps its calibrated prior set (late/early blight + nitrogen). Any other
+    crop uses its own susceptible_diseases from the crops DB (plus "healthy"), so
+    the diagnosis isn't limited to the hardcoded tomato list. Falls back to the
+    tomato set when the crop has no disease data.
+    """
+    if crop_id == "tomato":
+        return list(TOMATO_CONDITIONS)
+    diseases = [d for d in (susceptible_diseases or []) if d]
+    if not diseases:
+        return list(TOMATO_CONDITIONS)
+    return list(dict.fromkeys(diseases)) + ["healthy"]
+
+
 def _top_visible_symptoms(vision: "Optional[VisionOutput]", condition: str) -> list:
     """Visible symptoms for the fused top condition (fall back to the most
     confident candidate), to ground the explanation's "why"."""
@@ -592,20 +608,28 @@ async def diagnose(
         image_data_url = _encode_image(image_bytes, image.content_type)
         context = build_context(farmer)
 
+        # Candidate diseases come from the farmer's crop in the crops DB (Option 2),
+        # so vision scores THAT crop's diseases -- not a fixed tomato list.
+        candidates = _diagnosis_candidates(context.crop, context.susceptible_diseases)
+
         vision_result = None
         try:
-            vision_result = diagnose_image(image_bytes, mime_type=image.content_type or "image/jpeg")
+            vision_result = diagnose_image(
+                image_bytes, mime_type=image.content_type or "image/jpeg", candidate_conditions=candidates
+            )
         except VisionError as exc:
             _log_fallback("vision_fallback", str(exc))
 
         # Plant identification first: figure out which plant the photo shows, set
         # matches_profile authoritatively, and diagnose against that plant's crop
         # profile -- the farmer's crop if it matches, else the identified plant
-        # (PROJECT_SPEC.md "plant identification & multi-crop").
+        # (PROJECT_SPEC.md "plant identification & multi-crop"). This may repoint
+        # context.crop/susceptible_diseases, so recompute the candidate set.
         if vision_result is not None:
             _resolve_diagnosed_crop(vision_result, farmer, context)
+            candidates = _diagnosis_candidates(context.crop, context.susceptible_diseases)
 
-        fusion_result = fuse(vision_result, context)
+        fusion_result = fuse(vision_result, context, candidates)
 
         visible_symptoms = _top_visible_symptoms(vision_result, fusion_result.top)
         try:
@@ -759,7 +783,7 @@ def confirm(request: ConfirmRequest):
         raise HTTPException(status_code=404, detail="case not found")
 
     verdict = request.officer_verdict
-    contagious = CONTAGIOUS.get(verdict, False)
+    contagious = is_contagious(verdict)
 
     try:
         # Only a contagious verdict can fan out an alert, so only then do we need

@@ -11,13 +11,31 @@ TOMATO_CONDITIONS: tuple[Condition, ...] = (
     "nitrogen_deficiency",
 )
 
-# Whether each condition can spread farmer-to-farmer; drives both the nearby-
-# confirmed prior bonus below and the alert engine's contagion checks.
+# Whether each tomato condition can spread farmer-to-farmer; drives both the
+# nearby-confirmed prior bonus below and the alert engine's contagion checks.
 CONTAGIOUS: dict[Condition, bool] = {
     "late_blight": True,
     "early_blight": True,
     "nitrogen_deficiency": False,
 }
+
+# Conditions that are never contagious regardless of crop.
+NON_CONTAGIOUS_CONDITIONS = {"healthy", "other", "nitrogen_deficiency"}
+
+
+def is_contagious(condition: str) -> bool:
+    """Whether a (possibly non-tomato) condition can spread.
+
+    Uses the calibrated tomato map where available; otherwise a named disease
+    from the crops DB (e.g. "rice_blast", "bacterial_leaf_blight") is treated as
+    contagious, while healthy/other/nutrient conditions are not -- so the
+    community-alert gate works for any crop's diseases, not just tomato's.
+    """
+    if condition in CONTAGIOUS:
+        return CONTAGIOUS[condition]
+    if not condition or condition in NON_CONTAGIOUS_CONDITIONS:
+        return False
+    return True
 
 
 def compute_prior(context: FusionContext) -> dict[Condition, float]:

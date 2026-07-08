@@ -14,7 +14,23 @@ from pydantic import ValidationError
 from config import GEMINI_API_KEY, GEMINI_MODEL
 from models import VisionOutput
 
-VISION_PROMPT = """You are an agronomy vision assistant helping diagnose crop photos
+DEFAULT_CONDITIONS = ["late_blight", "early_blight", "nitrogen_deficiency", "other", "healthy"]
+
+
+def _build_prompt(candidate_conditions=None, extra_instruction: str = "") -> str:
+    """Vision prompt scoped to the candidate diseases of the identified crop.
+
+    The candidate ids come from the crops DB (Option 2), so the model scores the
+    diseases that actually apply to that crop -- not a fixed tomato-only list.
+    "healthy" and "other" are always allowed.
+    """
+    conditions = list(candidate_conditions) if candidate_conditions else list(DEFAULT_CONDITIONS)
+    for extra in ("healthy", "other"):
+        if extra not in conditions:
+            conditions.append(extra)
+    condition_ids = ", ".join('"%s"' % c for c in conditions)
+
+    prompt = f"""You are an agronomy vision assistant helping diagnose crop photos
 taken by smallholder farmers in India.
 
 FIRST, identify the plant/crop in the photo. THEN assess its condition. Score every
@@ -22,21 +38,25 @@ condition you can reasonably judge with its own confidence, not just the single 
 likely one, since a downstream system combines your scores with local weather and soil
 data. Base everything only on what is visibly in the photo.
 
+For "condition", use one of these exact ids (the diseases relevant to this crop):
+{condition_ids}
+
 Return ONLY JSON matching this shape, with no extra commentary:
-{
+{{
   "image_quality": "good" or "poor" (poor = blurry, too dark, too far away, or the
     plant/leaf is not clearly visible),
   "identified_crop": the plant/crop you actually see (lowercase, e.g. "tomato", "rice",
     "cotton", "wheat"); use "unidentifiable" if you genuinely cannot tell what plant it is,
   "crop_confirmed": same as identified_crop, or "uncertain" if you cannot tell,
   "candidates": [
-    {"condition": one of "late_blight", "early_blight", "nitrogen_deficiency", "other", "healthy",
+    {{"condition": one of the ids listed above,
      "confidence": a number from 0.0 to 1.0,
-     "visible_symptoms": ["short phrases describing what you actually see"]}
+     "visible_symptoms": ["short phrases describing what you actually see"]}}
   ],
   "notes": "any short additional observation"
-}
+}}
 """
+    return f"{prompt}\n\n{extra_instruction}" if extra_instruction else prompt
 
 
 class VisionError(Exception):
@@ -47,8 +67,10 @@ def _client() -> genai.Client:
     return genai.Client(api_key=GEMINI_API_KEY)
 
 
-def _call_gemini_vision(image_bytes: bytes, mime_type: str, extra_instruction: str = "") -> VisionOutput:
-    prompt = VISION_PROMPT if not extra_instruction else f"{VISION_PROMPT}\n\n{extra_instruction}"
+def _call_gemini_vision(
+    image_bytes: bytes, mime_type: str, candidate_conditions=None, extra_instruction: str = ""
+) -> VisionOutput:
+    prompt = _build_prompt(candidate_conditions, extra_instruction)
     response = _client().models.generate_content(
         model=GEMINI_MODEL,
         contents=[types.Part.from_bytes(data=image_bytes, mime_type=mime_type), prompt],
@@ -60,14 +82,15 @@ def _call_gemini_vision(image_bytes: bytes, mime_type: str, extra_instruction: s
     return VisionOutput.model_validate(json.loads(response.text))
 
 
-def diagnose_image(image_bytes: bytes, mime_type: str = "image/jpeg") -> VisionOutput:
+def diagnose_image(image_bytes: bytes, mime_type: str = "image/jpeg", candidate_conditions=None) -> VisionOutput:
     """Diagnose an image with Gemini, retrying once if the first reply is invalid JSON.
 
-    Raises VisionError if Gemini is unreachable, or still returns unusable output
-    after the retry. Any other failure (network, auth, API error) is not retried.
+    `candidate_conditions` are the disease ids the model should score -- the
+    identified crop's diseases from the crops DB (Option 2). Raises VisionError if
+    Gemini is unreachable, or still returns unusable output after the retry.
     """
     try:
-        return _call_gemini_vision(image_bytes, mime_type)
+        return _call_gemini_vision(image_bytes, mime_type, candidate_conditions)
     except (json.JSONDecodeError, ValidationError):
         pass  # malformed/invalid-shape JSON -- worth one retry with a stronger reminder
     except Exception as exc:
@@ -77,6 +100,7 @@ def diagnose_image(image_bytes: bytes, mime_type: str = "image/jpeg") -> VisionO
         return _call_gemini_vision(
             image_bytes,
             mime_type,
+            candidate_conditions,
             extra_instruction="Reminder: reply with valid JSON only, matching the exact shape above.",
         )
     except (json.JSONDecodeError, ValidationError) as exc:

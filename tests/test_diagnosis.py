@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 import firestore_client
 import main
 from engine.fusion import fuse
+from engine.prior_table import TOMATO_CONDITIONS, is_contagious
 from explain import ExplainError
 from models import (
     ContextLocation,
@@ -84,6 +85,47 @@ def test_low_margin_case_escalates():
     assert fuse(vision, context).decision == "escalate_rsk"
 
 
+# --- crop-driven candidate diseases (Option 2) -----------------------------------
+
+def test_is_contagious_generalizes_beyond_tomato():
+    assert is_contagious("late_blight") is True
+    assert is_contagious("nitrogen_deficiency") is False
+    assert is_contagious("healthy") is False and is_contagious("other") is False
+    # named diseases from the crops DB are treated as contagious
+    assert is_contagious("rice_blast") is True
+    assert is_contagious("bacterial_leaf_blight") is True
+
+
+def test_diagnosis_candidates_are_crop_driven():
+    assert main._diagnosis_candidates("tomato", ["late_blight", "early_blight"]) == list(TOMATO_CONDITIONS)
+    assert main._diagnosis_candidates("rice", ["rice_blast", "bacterial_leaf_blight"]) == [
+        "rice_blast", "bacterial_leaf_blight", "healthy",
+    ]
+    # no disease data -> fall back to the calibrated tomato set
+    assert main._diagnosis_candidates("wheat", []) == list(TOMATO_CONDITIONS)
+
+
+def test_fuse_over_non_tomato_candidates_is_vision_led():
+    vision = VisionOutput(
+        image_quality="good", crop_confirmed="rice", identified_crop="rice", matches_profile=True,
+        candidates=[
+            VisionCandidate(condition="rice_blast", confidence=0.8, visible_symptoms=["diamond lesions"]),
+            VisionCandidate(condition="bacterial_leaf_blight", confidence=0.2),
+        ],
+    )
+    ctx = FusionContext(
+        crop="rice", location=ContextLocation(lat=16.3, lng=80.4, resolution="village"),
+        weather=Weather(temp_c=28, humidity_pct=80, rain_48h_mm=5, source="live"),
+        soil=Soil(nitrogen="unknown", source="unknown"),
+    )
+    result = fuse(vision, ctx, candidates=["rice_blast", "bacterial_leaf_blight", "sheath_blight", "healthy"])
+    assert result.top == "rice_blast"           # vision-led (no calibrated prior off-tomato)
+    assert result.decision == "advise"          # confident + clear margin, no false conflict
+    conds = {p.condition: p.contagious for p in result.posterior}
+    assert conds["rice_blast"] is True and conds["healthy"] is False
+    assert result.alert_eligible is True
+
+
 # --- plant identification & multi-crop routing -----------------------------------
 
 WHEAT = Crop(
@@ -154,6 +196,52 @@ def test_diagnose_advise_has_no_officer_mention(monkeypatch):
     body = resp.json()
     assert body["fusion"]["decision"] == "advise"
     assert "officer" not in body["message"].lower()
+
+
+def _rice_farmer():
+    return Farmer(
+        id="venkat", name="Venkat", phone="9876500003", lang="en",
+        location=FarmerLocation(lat=16.3, lng=80.45, mandal="Guntur"),
+        crop="rice", land_size_acres=3.0, growth_stage="tillering", soil_type="clay",
+        current_crops=[CurrentCrop(crop_id="rice", planting_date="2026-06-01")],
+    )
+
+
+def test_diagnose_non_tomato_uses_crop_specific_disease(monkeypatch):
+    """A rice farmer's photo is diagnosed against RICE diseases from the crops DB,
+    not the hardcoded tomato list."""
+    rice_ctx = FusionContext(
+        crop="rice", location=ContextLocation(lat=16.3, lng=80.45, resolution="village"),
+        weather=Weather(temp_c=28, humidity_pct=85, rain_48h_mm=8, source="live"),
+        soil=Soil(nitrogen="unknown", source="unknown"),
+        susceptible_diseases=["rice_blast", "bacterial_leaf_blight", "sheath_blight"],
+    )
+    rice_vision = VisionOutput(
+        image_quality="good", crop_confirmed="rice", identified_crop="rice", matches_profile=True,
+        candidates=[
+            VisionCandidate(condition="rice_blast", confidence=0.82, visible_symptoms=["spindle lesions"]),
+            VisionCandidate(condition="sheath_blight", confidence=0.18),
+        ],
+    )
+    monkeypatch.setattr(firestore_client, "get_farmer", lambda fid: _rice_farmer())
+    monkeypatch.setattr(firestore_client, "create_case", lambda case: "case-r")
+    monkeypatch.setattr(firestore_client, "log_telemetry", lambda e: "t")
+    monkeypatch.setattr(main, "build_context", lambda farmer: rice_ctx)
+    captured = {}
+
+    def fake_vision(image_bytes, mime_type="image/jpeg", candidate_conditions=None):
+        captured["cands"] = candidate_conditions or []
+        return rice_vision
+
+    monkeypatch.setattr(main, "diagnose_image", fake_vision)
+    monkeypatch.setattr(main, "explain_fusion", lambda *a, **k: (_ for _ in ()).throw(ExplainError("no key")))
+
+    resp = client.post("/api/diagnose", data={"farmer_id": "venkat"},
+                       files={"image": ("leaf.jpg", b"img", "image/jpeg")})
+    body = resp.json()
+    assert body["fusion"]["top"] == "rice_blast"                 # diagnosed a RICE disease
+    assert "rice_blast" in captured["cands"]                     # vision was scoped to rice diseases
+    assert "late_blight" not in captured["cands"]                # not the tomato list
     # Structured explanation is returned with the three parts, none mentioning the officer.
     expl = body["explanation"]
     assert set(expl) == {"what", "why", "what_to_do"}

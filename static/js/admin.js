@@ -295,9 +295,15 @@
       overrideToggle.appendChild(oi);
     }
 
-    // Override options: exclude the AI's top only when it actually analysed the
-    // photo (Confirm already covers it); otherwise offer every condition.
-    var choices = (analyzed && aiTop) ? CONDITIONS.filter(function (c) { return c !== aiTop; }) : CONDITIONS.slice();
+    // Override options include this crop's candidate diseases (from the case's
+    // ranked candidates) plus the base conditions -- so the officer can pick a
+    // crop-specific disease, not just the hardcoded tomato set.
+    var allConds = [];
+    (row.candidates || []).map(function (c) { return c.condition; })
+      .concat(CONDITIONS)
+      .forEach(function (c) { if (c && allConds.indexOf(c) === -1) allConds.push(c); });
+    // Exclude the AI's top only when it actually analysed the photo (Confirm covers it).
+    var choices = (analyzed && aiTop) ? allConds.filter(function (c) { return c !== aiTop; }) : allConds;
     choices.forEach(function (c) {
       var opt = document.createElement("option");
       opt.value = c;

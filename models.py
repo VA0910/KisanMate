@@ -31,7 +31,10 @@ class ContextLocation(LatLng):
 # --- vision output contract -------------------------------------------------
 
 class VisionCandidate(BaseModel):
-    condition: Condition
+    # Free-text condition id (e.g. "late_blight", "rice_blast", "healthy"): the
+    # candidate diseases come from the identified crop's DB entry, so this is no
+    # longer limited to the tomato set (Condition is the calibrated-tomato subset).
+    condition: str
     confidence: float
     visible_symptoms: list[str] = Field(default_factory=list)
 
@@ -66,7 +69,7 @@ class Soil(BaseModel):
 
 
 class NearbyConfirmed(BaseModel):
-    condition: Condition
+    condition: str
     distance_km: float
     age_days: int
 
@@ -97,7 +100,7 @@ class FusionInput(BaseModel):
 # --- fusion output contract -------------------------------------------------
 
 class PosteriorEntry(BaseModel):
-    condition: Condition
+    condition: str
     score: float
     contagious: bool
 
@@ -110,7 +113,7 @@ class FusionEvidence(BaseModel):
 
 class FusionOutput(BaseModel):
     posterior: list[PosteriorEntry]
-    top: Condition
+    top: str
     confidence: float
     margin: float
     conflict: bool
@@ -204,7 +207,7 @@ class Case(BaseModel):
     fusion: Optional[FusionOutput] = None
     status: Literal["pending", "advised", "escalated", "disputed", "confirmed"] = "pending"
     officer_verdict: Optional[str] = None
-    condition: Optional[Condition] = None
+    condition: Optional[str] = None
     contagious: Optional[bool] = None
     created_at: Optional[datetime] = None
 
@@ -214,7 +217,7 @@ class Case(BaseModel):
 class Alert(BaseModel):
     id: Optional[str] = None
     source_case_id: str
-    condition: Condition
+    condition: str
     tier: Literal["watch", "warning", "alert"]
     center: LatLng
     radius_km: float

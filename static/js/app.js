@@ -237,6 +237,15 @@
     return t("confidenceLow");
   }
 
+  // Localized label for a condition id; crop-DB disease ids (e.g. "rice_blast")
+  // that aren't in the i18n table are prettified ("Rice Blast") rather than shown raw.
+  function prettyCondition(code) {
+    if (!code) return "";
+    var d = dict();
+    if (d.conditions && d.conditions[code]) return d.conditions[code];
+    return code.replace(/_/g, " ").replace(/\b\w/g, function (m) { return m.toUpperCase(); });
+  }
+
   function setIconUse(useEl, symbolId) {
     useEl.setAttribute("href", "#" + symbolId);
   }
@@ -525,7 +534,7 @@
       $("result-status-pill").className = "status-pill " + (isAdvise ? "status-ok" : "status-attention");
 
       conditionHeading.hidden = false;
-      conditionHeading.textContent = d.conditions[fusion.top] || fusion.top;
+      conditionHeading.textContent = prettyCondition(fusion.top);
 
       // The confidence indicator is driven by DECISION, not the raw posterior
       // number: "advise" always reads confident/high; "escalate_rsk" always reads
@@ -799,7 +808,7 @@
 
       var title = document.createElement("p");
       title.className = "alert-card-title";
-      title.textContent = (d.conditions[alert.condition] || alert.condition || "") + " " + t("inYourArea");
+      title.textContent = prettyCondition(alert.condition) + " " + t("inYourArea");
       body.appendChild(title);
 
       var metaParts = [];
