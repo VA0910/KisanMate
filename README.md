@@ -18,7 +18,7 @@ It runs as **one FastAPI app** that serves both a plain HTML/CSS/JS frontend (no
 - **Cinematic intro** — an auto-playing scripted story of the whole flow before login.
 - **Graceful degradation** — every AI call has a deterministic fallback, so the app stays useful even if Gemini or the network is down (nothing ever shows the farmer a stack trace).
 
-## Architecture in one paragraph
+## Architecture 
 
 Four layers: (1) a **deterministic core** (crop scoring, disease-risk prior, fusion math, alert propagation) in plain Python with no AI calls; (2) an **AI content layer** (Gemini) that adds natural-language understanding/explanation on top — it never replaces the core; (3) **silent fallbacks** that degrade to the deterministic layer and log to a telemetry store on any failure; (4) **human override** — the farmer can correct any field, and an RSK officer's verdict is authoritative.
 
