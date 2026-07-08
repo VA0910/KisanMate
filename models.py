@@ -101,6 +101,14 @@ class FusionOutput(BaseModel):
     evidence: FusionEvidence
 
 
+# --- crop recommendation (engine/crop_scorer.py output) ---------------------
+
+class CropRecommendation(BaseModel):
+    crop: str
+    score: int
+    reason_code: str
+
+
 # --- firestore: farmers/{id} -------------------------------------------------
 
 class Farmer(BaseModel):
