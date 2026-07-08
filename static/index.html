@@ -121,13 +121,16 @@
     <h1 id="home-heading" data-i18n="homeGreeting">Welcome</h1>
     <p class="tagline" data-i18n="tagline">Your farm helper</p>
 
-    <button type="button" id="run-demo-btn" class="demo-launch">
-      <span class="demo-launch-icon" aria-hidden="true">▶</span>
-      <span data-i18n="runDemo">Run demo scenario</span>
-    </button>
+    <div class="demo-launch-group">
+      <button type="button" id="run-demo-btn" class="demo-launch">
+        <span class="demo-launch-icon" aria-hidden="true">▶</span>
+        <span data-i18n="runDemo">Run demo scenario</span>
+      </button>
+      <button type="button" id="reset-demo-btn" class="demo-reset" data-i18n="resetDemo">Reset demo data</button>
+    </div>
 
     <div class="mic-wrap">
-      <button type="button" id="mic-btn" class="mic-btn" aria-pressed="false">
+      <button type="button" id="mic-btn" class="mic-btn" aria-pressed="false" aria-labelledby="mic-status-text">
         <svg class="icon icon-lg" aria-hidden="true"><use href="#icon-mic"></use></svg>
       </button>
       <p id="mic-status-text" class="mic-status-text" data-i18n="tapAndSpeak">Tap and speak</p>

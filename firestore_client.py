@@ -117,6 +117,25 @@ def list_recent_alerts(limit: int = 50) -> list[Alert]:
 
 # --- telemetry ---------------------------------------------------------------------
 
+def clear_collection(name: str, batch_size: int = 300) -> int:
+    """Delete every document in a collection, in batches. Returns the count.
+
+    Used by the demo reset to wipe generated cases/alerts/telemetry. Seeded
+    farmers are re-upserted separately, not cleared here.
+    """
+    collection = get_client().collection(name)
+    deleted = 0
+    while True:
+        docs = list(collection.limit(batch_size).stream())
+        if not docs:
+            return deleted
+        batch = get_client().batch()
+        for doc in docs:
+            batch.delete(doc.reference)
+        batch.commit()
+        deleted += len(docs)
+
+
 def log_telemetry(entry: Telemetry) -> str:
     doc_ref = get_client().collection(TELEMETRY_COLLECTION).document()
     data = entry.model_dump(exclude={"id", "created_at"})

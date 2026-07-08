@@ -299,8 +299,27 @@
 
   // ---- boot ----------------------------------------------------------------
 
+  function resetDemo() {
+    var btn = $("reset-btn");
+    btn.disabled = true;
+    var original = btn.textContent;
+    btn.textContent = "Resetting…";
+    fetchJson("/api/demo/reset", { method: "POST" }, 30000)
+      .then(function () {
+        toast("Demo data reset.");
+        loadCases();
+        loadAlerts(false);
+      })
+      .catch(function () { toast("Couldn't reset the demo data. Please try again.", true); })
+      .finally(function () {
+        btn.disabled = false;
+        btn.textContent = original;
+      });
+  }
+
   function init() {
     $("refresh-btn").addEventListener("click", function () { loadCases(); loadAlerts(false); });
+    $("reset-btn").addEventListener("click", resetDemo);
     document.querySelectorAll("[data-retry]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         if (btn.getAttribute("data-retry") === "cases") loadCases();

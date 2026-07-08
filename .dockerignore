@@ -1,0 +1,22 @@
+# Keep the Cloud Run image small and free of secrets / host cruft.
+# Without this, `COPY . .` would bake in the local virtualenv and the .env file.
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+.gitignore
+.dockerignore
+.devcontainer/
+
+# Secrets: never bake env files into the image (Cloud Run injects env at runtime).
+.env
+*.env
+service-account*.json
+
+# Not needed at runtime.
+tests/
+pytest.ini
+*.md

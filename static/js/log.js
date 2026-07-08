@@ -112,8 +112,30 @@
     pollTimer = null;
   }
 
+  function resetDemo() {
+    var btn = $("reset-btn");
+    btn.disabled = true;
+    var original = btn.textContent;
+    btn.textContent = "Resetting…";
+    fetch("/api/demo/reset", { method: "POST" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function () { load(true); })
+      .catch(function () {
+        $("error-msg").textContent = "Couldn't reset the demo data. Please try again.";
+        show("error");
+      })
+      .finally(function () {
+        btn.disabled = false;
+        btn.textContent = original;
+      });
+  }
+
   function init() {
     $("refresh-btn").addEventListener("click", function () { load(true); });
+    $("reset-btn").addEventListener("click", resetDemo);
     $("error-retry").addEventListener("click", function () { load(true); });
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden) load(false);

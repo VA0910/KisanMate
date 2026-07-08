@@ -95,6 +95,28 @@ def _alert_payload(alerts: list) -> list[dict]:
     ]
 
 
+def reset_demo() -> dict:
+    """Return the app to a clean, known state for the next judge run.
+
+    Wipes demo-generated cases, alerts, and telemetry, then re-seeds the demo
+    farmers (idempotent). Logs a single `demo_reset` marker afterwards so /log
+    starts from a clear, self-explaining baseline.
+    """
+    cleared = {}
+    for name in (
+        firestore_client.CASES_COLLECTION,
+        firestore_client.ALERTS_COLLECTION,
+        firestore_client.TELEMETRY_COLLECTION,
+    ):
+        cleared[name] = firestore_client.clear_collection(name)
+
+    for farmer in DEMO_FARMERS:
+        firestore_client.upsert_farmer(farmer)
+
+    _log("demo_reset", "demo", {"cleared": cleared, "farmers": len(DEMO_FARMERS)})
+    return {"status": "reset", "cleared": cleared, "farmers": [f.id for f in DEMO_FARMERS]}
+
+
 def run_demo_scenario(lang: str = "en") -> dict:
     """Run the whole story end to end and return the per-step data the frontend
     replays. `lang` controls the language of the farmer-facing diagnosis message

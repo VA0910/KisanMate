@@ -623,6 +623,27 @@ section[id^="screen-"] > h1 { outline: none; }
 .demo-launch:hover { background: var(--primary-strong); }
 .demo-launch-icon { font-size: 1.1rem; }
 
+.demo-launch-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+}
+.demo-launch-group .demo-launch { margin-bottom: 0; }
+.demo-reset {
+  min-height: 48px;
+  padding: var(--space-1) var(--space-3);
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.demo-reset:hover { background: var(--surface-alt); color: var(--text); }
+.demo-reset:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* Secondary variant on the language picker: reachable on a truly fresh load,
    but visually subordinate to the language cards (the primary action there). */
 .demo-launch-secondary {

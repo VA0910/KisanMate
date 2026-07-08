@@ -9,11 +9,12 @@ from pydantic import BaseModel
 import demo
 import firestore_client
 import services
+import weather as weather_source
 from engine.crop_scorer import score_crops
 from engine.fusion import fuse
 from engine.prior_table import CONTAGIOUS
 from explain import ExplainError, explain_fusion, template_message
-from models import Case, ContextLocation, Farmer, FusionContext, Soil, Telemetry, Weather
+from models import Case, ContextLocation, Farmer, FusionContext, Soil, Telemetry
 from vision import VisionError, diagnose_image
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -59,18 +60,24 @@ class DemoRequest(BaseModel):
 
 
 def _build_context(farmer: Farmer) -> FusionContext:
-    """Stub context until live weather/soil/nearby-case sourcing exists.
+    """Assemble the fusion context for a farmer, degrading gracefully per source.
 
-    Uses the farmer's own crop and registered location; weather/soil are marked
-    with degraded sources ("zone_normal"/"unknown") rather than invented live
-    readings, so the prior table degrades exactly the way it's designed to when
-    real data isn't available. nearby_confirmed is left empty pending the
-    community alert engine, which is what will populate it.
+    Weather is sourced through weather.get_weather(); if it's unavailable (no live
+    provider, or a failed/timed-out fetch) we log a telemetry fallback and drop to
+    zone-normal defaults, so the prior table still runs on honest degraded data
+    instead of surfacing an error. Soil/nearby are still marked degraded pending
+    their own live sourcing.
     """
+    try:
+        weather_reading = weather_source.get_weather(farmer.location.lat, farmer.location.lng)
+    except Exception as exc:
+        _log_event("weather_fallback", "context_data", str(exc), fallback_used=True)
+        weather_reading = weather_source.zone_normal_weather()
+
     return FusionContext(
         crop=farmer.crop,
         location=ContextLocation(lat=farmer.location.lat, lng=farmer.location.lng, resolution="village"),
-        weather=Weather(temp_c=28.0, humidity_pct=70.0, rain_48h_mm=0.0, source="zone_normal"),
+        weather=weather_reading,
         soil=Soil(nitrogen="unknown", source="unknown"),
         nearby_confirmed=[],
     )
@@ -223,22 +230,33 @@ def confirm(request: ConfirmRequest):
     verdict as the case's condition before propagation, so the alert reflects the
     human decision -- not the model's.
     """
-    case = firestore_client.get_case(request.case_id)
+    try:
+        case = firestore_client.get_case(request.case_id)
+    except Exception as exc:
+        _log_event("confirm_lookup_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="case store temporarily unavailable")
+
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
 
     verdict = request.officer_verdict
     contagious = CONTAGIOUS.get(verdict, False)
-    # Only a contagious verdict can fan out an alert, so only then do we need the
-    # farmer roster (keeps the non-contagious path to a single write).
-    farmers = firestore_client.list_farmers() if contagious else []
 
-    alert_summary = services.confirm_and_propagate(
-        case,
-        verdict,
-        farmers,
-        error_logger=lambda exc: _log_event("alert_propagation_error", "alert_engine", str(exc)),
-    )
+    try:
+        # Only a contagious verdict can fan out an alert, so only then do we need
+        # the farmer roster (keeps the non-contagious path to a single write).
+        farmers = firestore_client.list_farmers() if contagious else []
+        alert_summary = services.confirm_and_propagate(
+            case,
+            verdict,
+            farmers,
+            error_logger=lambda exc: _log_event("alert_propagation_error", "alert_engine", str(exc)),
+        )
+    except Exception as exc:
+        # The case update itself failed (e.g. Firestore write) -- report honestly
+        # rather than claim a confirmation that didn't persist.
+        _log_event("confirm_write_error", "api", str(exc))
+        raise HTTPException(status_code=503, detail="could not save the verdict; please retry")
 
     return {
         "case_id": request.case_id,
@@ -304,12 +322,18 @@ def get_alerts(farmer_id: str):
 
 @app.post("/api/recommend")
 def recommend(request: RecommendRequest):
-    recommendations = score_crops(
-        soil=request.soil,
-        groundwater_depth_m=request.groundwater_depth_m,
-        agro_zone=request.agro_zone,
-        seasonal_rainfall_mm=request.seasonal_rainfall_mm,
-    )
+    # Pure rule engine (no I/O), but wrapped anyway so no endpoint can ever leak a
+    # 500: on the off chance scoring raises, the app shows its kind retry state.
+    try:
+        recommendations = score_crops(
+            soil=request.soil,
+            groundwater_depth_m=request.groundwater_depth_m,
+            agro_zone=request.agro_zone,
+            seasonal_rainfall_mm=request.seasonal_rainfall_mm,
+        )
+    except Exception as exc:
+        _log_event("recommend_error", "deterministic", str(exc))
+        raise HTTPException(status_code=503, detail="recommendation temporarily unavailable")
     return {
         "farmer_id": request.farmer_id,
         "recommendations": [rec.model_dump() for rec in recommendations],
@@ -331,6 +355,17 @@ def demo_run(request: DemoRequest):
     except Exception as exc:
         _log_event("demo_error", "demo", str(exc))
         raise HTTPException(status_code=503, detail="demo could not run right now")
+
+
+@app.post("/api/demo/reset")
+def demo_reset():
+    """Wipe demo-generated cases/alerts/telemetry and re-seed the demo farmers,
+    so an unattended judge can always return to a clean, known starting state."""
+    try:
+        return demo.reset_demo()
+    except Exception as exc:
+        _log_event("demo_reset_error", "demo", str(exc))
+        raise HTTPException(status_code=503, detail="reset could not run right now")
 
 
 @app.get("/log")

@@ -734,7 +734,11 @@
   }
 
   function replayDemo() {
-    if (!demoState.data) return;
+    if (!demoState.data) {
+      // The initial run failed to load -- treat "Replay" as a retry.
+      startDemo();
+      return;
+    }
     window.KM_SPEECH.stopSpeaking();
     $("demo-replay-btn").hidden = true;
     $("demo-next-btn").disabled = false;
@@ -754,9 +758,19 @@
     $("run-demo-btn").focus();
   }
 
+  function resetDemoData() {
+    var btn = $("reset-demo-btn");
+    btn.disabled = true;
+    window.KM_API.demoReset()
+      .then(function () { toast(t("resetDemoDone")); })
+      .catch(function () { toast(t("resetDemoError")); })
+      .finally(function () { btn.disabled = false; });
+  }
+
   function wireDemo() {
     $("run-demo-btn").addEventListener("click", startDemo);
     $("run-demo-btn-lang").addEventListener("click", startDemo);
+    $("reset-demo-btn").addEventListener("click", resetDemoData);
     $("demo-next-btn").addEventListener("click", function () {
       clearTimeout(demoState.timer);
       advanceDemo();

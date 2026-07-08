@@ -92,6 +92,10 @@
     );
   }
 
+  function demoReset() {
+    return requestJson("/api/demo/reset", { method: "POST" }, 30000);
+  }
+
   function confirm(caseId, officerVerdict) {
     return requestJson(
       "/api/confirm",
@@ -110,6 +114,7 @@
     recommend: recommend,
     getAlerts: getAlerts,
     confirm: confirm,
-    demoRun: demoRun
+    demoRun: demoRun,
+    demoReset: demoReset
   };
 })(window);

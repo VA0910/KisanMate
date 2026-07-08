@@ -124,6 +124,9 @@
       tiers: { watch: "Watch", warning: "Warning", alert: "Alert" },
 
       runDemo: "Run demo scenario",
+      resetDemo: "Reset demo data",
+      resetDemoDone: "Demo data reset to a clean state.",
+      resetDemoError: "Couldn't reset the demo data. Please try again.",
       demoLoading: "Starting the demo…",
       demoError: "The demo needs the database. Please try again.",
       demoNext: "Next",
@@ -241,6 +244,9 @@
       tiers: { watch: "नज़र रखें", warning: "चेतावनी", alert: "खतरा" },
 
       runDemo: "डेमो चलाएं",
+      resetDemo: "डेमो डेटा रीसेट करें",
+      resetDemoDone: "डेमो डेटा साफ़ स्थिति में रीसेट हो गया।",
+      resetDemoError: "डेमो डेटा रीसेट नहीं हो पाया। कृपया फिर से कोशिश करें।",
       demoLoading: "डेमो शुरू हो रहा है…",
       demoError: "डेमो के लिए डेटाबेस ज़रूरी है। कृपया फिर से कोशिश करें।",
       demoNext: "आगे",
@@ -358,6 +364,9 @@
       tiers: { watch: "గమనించండి", warning: "హెచ్చరిక", alert: "ప్రమాదం" },
 
       runDemo: "డెమో చూడండి",
+      resetDemo: "డెమో డేటా రీసెట్ చేయి",
+      resetDemoDone: "డెమో డేటా శుభ్రమైన స్థితికి రీసెట్ అయింది.",
+      resetDemoError: "డెమో డేటా రీసెట్ చేయలేకపోయాము. దయచేసి మళ్ళీ ప్రయత్నించండి.",
       demoLoading: "డెమో మొదలవుతోంది…",
       demoError: "డెమోకి డేటాబేస్ అవసరం. దయచేసి మళ్ళీ ప్రయత్నించండి.",
       demoNext: "తర్వాత",
