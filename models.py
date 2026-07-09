@@ -12,6 +12,28 @@ Condition = Literal[
 ]
 Language = Literal["en", "hi", "te"]
 
+AssistantIntentType = Literal[
+    "crop_recommendation", "fertilizer_advice", "mandi_price",
+    "weather_advice", "general_farming_qa", "off_topic",
+]
+
+
+# --- assistant intent classification (Gemini I/O contract) ------------------
+
+class AssistantIntent(BaseModel):
+    """Strict-JSON output of the assistant's intent CLASSIFIER call (assistant.py).
+
+    The classifier never answers the farmer's question -- it only routes. `lang`
+    is the language the farmer actually spoke/typed in, which may differ from
+    the app's current UI language.
+    """
+    intent: AssistantIntentType
+    on_topic: bool
+    crop: Optional[str] = None
+    commodity: Optional[str] = None
+    location: Optional[str] = None
+    lang: Language = "en"
+
 
 # --- shared geo shapes -----------------------------------------------------
 

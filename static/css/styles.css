@@ -463,12 +463,15 @@ section[id^="screen-"] > h1 { outline: none; }
 .home-actions {
   display: grid;
   gap: var(--space-3);
+  justify-content: center;
 }
 .action-card {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-1);
+  width: 100%;
+  max-width: 320px;
   min-height: 120px;
   padding: var(--space-4);
   background: var(--surface);
@@ -793,40 +796,39 @@ section[id^="screen-"] > h1 { outline: none; }
 .crop-name { font-size: 1.25rem; font-weight: 700; }
 .crop-reason { color: var(--text-muted); margin: var(--space-2) 0 0; }
 
-/* ---------- recommend: voice-first conversation ------------------------------ */
+/* ---------- home assistant: voice-first conversation -------------------------- */
 
-#screen-recommend { text-align: center; }
-.recommend-lead { font-size: 1.15rem; margin-bottom: var(--space-3); }
-.recommend-transcript {
-  background: var(--surface-alt);
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-3);
-  margin: var(--space-3) 0;
-  font-style: italic;
-}
 .recommend-text-form { margin-top: var(--space-4); text-align: left; }
 .recommend-text-form .field-label { text-align: left; }
-
 .recommend-question { text-align: left; color: var(--text-muted); font-style: italic; margin-bottom: var(--space-3); }
-.reco-list {
-  list-style: none;
-  margin: 0 0 var(--space-3);
-  padding: 0;
+
+.assistant-chips {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  text-align: left;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: center;
+  margin: var(--space-4) 0;
 }
-.reco-card {
+.example-chip {
+  min-height: 44px;
+  padding: var(--space-1) var(--space-3);
+  border: 2px solid var(--border);
+  border-radius: 999px;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-3);
+  cursor: pointer;
+  font-size: 0.95rem;
 }
-.reco-card-best { border-color: var(--primary); border-width: 2px; }
-.reco-head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-1); }
-.reco-name { font-size: 1.3rem; font-weight: 800; }
-.reco-why { margin: 0; line-height: 1.5; }
+.example-chip:hover, .example-chip:focus-visible { border-color: var(--primary); }
+
+.assistant-citations {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  text-align: left;
+  font-size: 0.9rem;
+}
+.assistant-citations li { margin-bottom: var(--space-1); }
+.assistant-citations a { color: var(--primary); }
 
 /* ---------- alerts -------------------------------------------------------------- */
 
@@ -895,7 +897,7 @@ section[id^="screen-"] > h1 { outline: none; }
   max-width: 100%;
 }
 
-/* ---------- guided demo ----------------------------------------------------------- */
+/* ---------- demo launch buttons ---------------------------------------------------- */
 
 .demo-launch {
   display: inline-flex;
@@ -950,62 +952,6 @@ section[id^="screen-"] > h1 { outline: none; }
 }
 .demo-launch-secondary:hover { background: var(--surface-alt); }
 
-/* While the demo runs, give content room to scroll clear of the bottom overlay. */
-body.demo-running { padding-bottom: 300px; }
-
-.demo-overlay {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 40;
-  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
-}
-.demo-bar {
-  max-width: 640px;
-  margin: 0 auto;
-  background: var(--text);
-  color: var(--bg);
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  padding: var(--space-3) var(--space-3) var(--space-4);
-  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.28);
-}
-.demo-progress {
-  height: 6px;
-  border-radius: 999px;
-  background: rgba(127, 127, 127, 0.4);
-  overflow: hidden;
-  margin-bottom: var(--space-2);
-}
-.demo-progress-fill {
-  display: block;
-  height: 100%;
-  width: 0;
-  background: var(--primary);
-  border-radius: 999px;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .demo-progress-fill { transition: width 0.4s ease; }
-}
-.demo-step {
-  margin: 0 0 var(--space-1);
-  font-size: 0.95rem;
-  font-weight: 700;
-  opacity: 0.85;
-}
-.demo-caption {
-  margin: 0 0 var(--space-3);
-  font-size: 1.15rem;
-  line-height: 1.45;
-}
-.demo-caption:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
-.demo-controls {
-  display: flex;
-  gap: var(--space-2);
-  justify-content: flex-end;
-  flex-wrap: wrap;
-}
-
 /* ---------- verdict popup (officer reviewed your case) --------------------------- */
 
 .verdict-modal {
@@ -1035,7 +981,6 @@ body.demo-running { padding-bottom: 300px; }
 /* ---------- small tablet+ progressive enhancement --------------------------------- */
 
 @media (min-width: 600px) {
-  .home-actions { grid-template-columns: 1fr 1fr; }
   .lang-grid { grid-template-columns: 1fr; max-width: 420px; margin-left: auto; margin-right: auto; }
   .result-actions { justify-content: center; }
   .result-actions .btn { flex: none; min-width: 160px; }
@@ -1171,9 +1116,6 @@ body.intro-running { overflow: hidden; }
 .intro-finale { text-align: center; }
 .intro-logo { font-size: 4rem; display: block; }
 .intro-finale-title { font-size: 2rem; font-weight: 800; letter-spacing: 0.02em; }
-
-/* staged officer host during the guided demo */
-#demo-officer { display: flex; align-items: center; justify-content: center; padding: var(--space-4) 0; }
 
 /* login helper links (watch intro / officer sign-in) */
 .login-links { display: flex; flex-wrap: wrap; gap: var(--space-3); justify-content: center; margin-top: var(--space-3); }

@@ -6,4 +6,5 @@ google-cloud-firestore
 google-cloud-secret-manager
 pydantic
 python-dotenv
+requests
 pytest

@@ -169,6 +169,22 @@
     );
   }
 
+  // The farm assistant: one free-form voice/text question -> intent classifier
+  // -> handler (crop_recommendation / fertiliser / mandi price / weather / general
+  // Q&A / off-topic refusal). Always resolves 200 with a farmer-facing answer_text
+  // -- never a raw error, per the backend's four-layer degrade rule.
+  function assistantAsk(farmerId, text, lang) {
+    return requestJson(
+      "/assistant",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ farmer_id: farmerId, text: text, lang: lang || "en" })
+      },
+      30000
+    );
+  }
+
   function getAlerts(farmerId) {
     return requestJson("/api/alerts/" + encodeURIComponent(farmerId), { method: "GET" }, 15000);
   }
@@ -187,18 +203,6 @@
       { method: "POST" },
       15000
     ).catch(function () { return null; }); // best-effort: never disrupt the farmer
-  }
-
-  function demoRun(lang) {
-    return requestJson(
-      "/api/demo/run",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lang: lang || "en" })
-      },
-      30000
-    );
   }
 
   function demoReset() {
@@ -240,13 +244,13 @@
     diagnose: diagnose,
     recommend: recommend,
     recommendAsk: recommendAsk,
+    assistantAsk: assistantAsk,
     getAlerts: getAlerts,
     getMyCases: getMyCases,
     getNotifications: getNotifications,
     markVerdictSeen: markVerdictSeen,
     confirm: confirm,
     dispute: dispute,
-    demoRun: demoRun,
     demoReset: demoReset
   };
 })(window);

@@ -136,6 +136,7 @@ Set these in `.env` for local dev, or in the service config when deployed.
 | `GOOGLE_APPLICATION_CREDENTIALS` | optional | — | Path to a service-account JSON, if you prefer that over `gcloud` ADC. |
 | `ADMIN_USERNAME` | no | `officer` | Officer portal login. |
 | `ADMIN_PASSWORD` | no | `rsk2024` | Officer portal login. |
+| `DATA_GOV_API_KEY` | no | — | data.gov.in key for the assistant's **mandi price** intent (`mandi.py`). Get one free at [data.gov.in](https://data.gov.in) (Sign Up → My Account → API Keys). Without it, mandi_price questions just get a "no rate available" answer — never an error, never a fabricated price. |
 | `PORT` | no | `8080` | Port to listen on (Cloud Run sets this automatically). |
 
 By default Gemini calls go through **Vertex AI** using `GOOGLE_CLOUD_PROJECT`, so no `GEMINI_API_KEY` is needed and usage is covered by Google Cloud Free Trial credits (the AI Studio Developer API is explicitly excluded from that credit coverage). The runtime identity needs the `roles/aiplatform.user` IAM role, and the project needs `aiplatform.googleapis.com` enabled — see [Deploy to Google Cloud Run](#deploy-to-google-cloud-run) below. Set `GEMINI_USE_VERTEXAI=false` to fall back to the AI Studio Developer API, providing the key **either** directly (`GEMINI_API_KEY`) **or** via Secret Manager (`GEMINI_API_KEY_SECRET`) — the direct env var takes precedence, and a missing/misconfigured secret never crashes startup (the app just uses its deterministic fallbacks). No API key is needed for **weather** (Open-Meteo) or **place search** (OpenStreetMap Nominatim) — both are keyless.
@@ -207,6 +208,9 @@ gcloud run deploy kisanmate \
   --region asia-south1 \
   --allow-unauthenticated \
   --set-env-vars GOOGLE_CLOUD_PROJECT=<your-gcp-project-id>
+
+# Optional: add mandi prices to the assistant (append to --set-env-vars above,
+# comma-separated) --  ,DATA_GOV_API_KEY=<your-data-gov-in-api-key>
 
 # Then seed the Firestore project once (from a machine with ADC to that project):
 python seed.py && python seed_crops.py

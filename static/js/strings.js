@@ -27,7 +27,7 @@
       back: "Back",
       navHome: "Home",
       navDiagnose: "Diagnose",
-      navGrow: "Grow",
+      navReports: "Reports",
       navAlerts: "Alerts",
       retry: "Try again",
       cancel: "Cancel",
@@ -103,18 +103,22 @@
       reminderStageCare: function (crop) { return "Your " + crop + ":"; },
 
       homeGreeting: "Welcome",
+      assistantWelcome: "🙏 Namaste — how can I help you today?",
       tapAndSpeak: "Tap and speak",
       listening: "Listening...",
-      micUnavailableHint: "Voice isn't available on this device. Use the buttons below.",
-      micPermissionDenied: "Please allow microphone access, or use the buttons below.",
-      voiceNotUnderstood: "Sorry, I didn't catch that. Please try again or use the buttons below.",
+      micUnavailableHint: "Voice isn't available on this device. Use the text box below.",
+      micPermissionDenied: "Please allow microphone access, or type your question below.",
+      voiceNotUnderstood: "Sorry, I didn't catch that. Please try again or type your question below.",
       diagnoseCardTitle: "Diagnose my crop",
       diagnoseCardSub: "Take a photo of your plant",
-      recommendCardTitle: "What should I grow?",
-      recommendCardSub: "Get crop suggestions",
-      voiceOpeningDiagnose: "Opening crop diagnosis",
-      voiceOpeningRecommend: "Opening crop suggestions",
-      voiceOpeningAlerts: "Opening your alerts",
+      assistantQuestionPlaceholder: "e.g. what should I grow after tomatoes?",
+      assistantYouAsked: function (q) { return "You asked: " + q; },
+      assistantAskEmpty: "Please ask a question first.",
+      assistantError: "I couldn't answer that right now. Please try again.",
+      chipGrow: "What should I grow?",
+      chipMandi: "Today's tomato price",
+      chipFertilizer: "Which fertiliser for my crop?",
+      chipWeather: "Will it rain this week?",
 
       diagnoseInstruction: "Take or choose a clear photo of the leaf",
       addPhoto: "Add Photo",
@@ -155,16 +159,9 @@
       bestMatch: "Best match",
       startOver: "Start over",
       recommendResultIntro: "Here are good crops for your field",
-      recommendError: "We couldn't get suggestions right now. Please try again.",
-      recommendAskLead: "Ask me what to grow — just speak your question.",
-      askMeToGrow: "Ask me what to grow",
       orTypeQuestion: "Or type your question",
-      recommendQuestionPlaceholder: "e.g. what should I grow after tomatoes?",
       askBtn: "Ask",
       askAgain: "Ask again",
-      recommendAskEmpty: "Please ask a question first.",
-      recommendYouAsked: function (q) { return "You asked: " + q; },
-      recommendVoiceSummary: function (crop) { return crop + " is your best match"; },
 
       alertsTitle: "Your Alerts",
       alertsEmpty: "No alerts right now. We'll let you know if there's a risk near your farm.",
@@ -178,8 +175,6 @@
         return n === 1 ? "You have 1 new alert" : "You have " + n + " new alerts";
       },
 
-      reportsCardTitle: "My reports",
-      reportsCardSub: "See your past diagnoses",
       reportsTitle: "Your Reports",
       reportsEmpty: "You haven't diagnosed a crop yet.",
       reportsLoadError: "We couldn't load your reports. Please check your connection.",
@@ -230,16 +225,10 @@
       groundwater: { shallow: "Shallow", medium: "Medium", deep: "Deep" },
       tiers: { watch: "Watch", warning: "Warning", alert: "Alert" },
 
-      runDemo: "Run demo scenario",
       demoSectionTitle: "Demo",
       resetDemo: "Reset demo data",
       resetDemoDone: "Demo data reset to a clean state.",
       resetDemoError: "Couldn't reset the demo data. Please try again.",
-      demoLoading: "Starting the demo…",
-      demoError: "The demo needs the database. Please try again.",
-      demoNext: "Next",
-      demoExit: "Exit demo",
-      demoReplay: "Replay",
 
       skipIntro: "Skip intro",
       watchIntro: "Watch intro",
@@ -252,12 +241,7 @@
       introScene3: "KisanMate isn't certain between two diseases, so instead of guessing it sends the case to the local officer.",
       introScene4: "An agricultural officer reviews it and confirms late blight.",
       introScene5: "Because it spreads, nearby tomato farmers are warned instantly. The rice farmer next door isn't — only those actually at risk.",
-      introScene6: "This is KisanMate. Let's begin.",
-      demoStepOf: function (n, total) { return "Step " + n + " of " + total; },
-      demoStep1: "Meet Ramesh, a tomato farmer near Guntur. KisanMate checks his soil, water and rainfall, and recommends the best crops for his land — tomato is a strong match.",
-      demoStep2: "Ramesh photographs a sick leaf. The camera alone leans towards early blight, but the cool, wet weather points to late blight — a contagious disease. Because they disagree, KisanMate does not guess: it escalates to a human expert.",
-      demoStep3: "An RSK officer reviews the photo and confirms late blight. The officer's verdict is final — it overrides the AI.",
-      demoStep4: "A confirmed contagious case triggers a community alert. Lakshmi, a tomato farmer 3 km away, is warned in her own language, Telugu. Venkat next door grows rice, so he is left undisturbed."
+      introScene6: "This is KisanMate. Let's begin."
     },
 
     hi: {
@@ -268,7 +252,7 @@
       back: "पीछे",
       navHome: "होम",
       navDiagnose: "जांच",
-      navGrow: "उगाएं",
+      navReports: "रिपोर्ट",
       navAlerts: "सूचना",
       retry: "फिर से कोशिश करें",
       cancel: "रद्द करें",
@@ -344,18 +328,22 @@
       reminderStageCare: function (crop) { return "आपकी " + crop + " फ़सल:"; },
 
       homeGreeting: "नमस्ते",
+      assistantWelcome: "🙏 नमस्ते — आज मैं आपकी क्या मदद कर सकता हूँ?",
       tapAndSpeak: "बोलने के लिए दबाएं",
       listening: "सुन रहे हैं...",
-      micUnavailableHint: "इस फ़ोन में आवाज़ की सुविधा नहीं है। नीचे दिए बटन इस्तेमाल करें।",
-      micPermissionDenied: "कृपया माइक की अनुमति दें, या नीचे दिए बटन इस्तेमाल करें।",
-      voiceNotUnderstood: "माफ़ करें, समझ नहीं आया। फिर से बोलें या नीचे दिए बटन इस्तेमाल करें।",
+      micUnavailableHint: "इस फ़ोन में आवाज़ की सुविधा नहीं है। नीचे टेक्स्ट बॉक्स इस्तेमाल करें।",
+      micPermissionDenied: "कृपया माइक की अनुमति दें, या नीचे अपना सवाल टाइप करें।",
+      voiceNotUnderstood: "माफ़ करें, समझ नहीं आया। फिर से बोलें या नीचे अपना सवाल टाइप करें।",
       diagnoseCardTitle: "फ़सल की जांच करें",
       diagnoseCardSub: "पौधे की फोटो लें",
-      recommendCardTitle: "क्या उगाएं?",
-      recommendCardSub: "फ़सल के सुझाव पाएं",
-      voiceOpeningDiagnose: "फ़सल जांच खोल रहे हैं",
-      voiceOpeningRecommend: "फ़सल सुझाव खोल रहे हैं",
-      voiceOpeningAlerts: "आपकी सूचनाएं खोल रहे हैं",
+      assistantQuestionPlaceholder: "जैसे: टमाटर के बाद क्या उगाएं?",
+      assistantYouAsked: function (q) { return "आपने पूछा: " + q; },
+      assistantAskEmpty: "कृपया पहले एक सवाल पूछें।",
+      assistantError: "अभी जवाब नहीं मिल पाया। कृपया फिर से कोशिश करें।",
+      chipGrow: "क्या उगाएं?",
+      chipMandi: "आज टमाटर का भाव",
+      chipFertilizer: "मेरी फ़सल के लिए कौन सी खाद?",
+      chipWeather: "क्या इस हफ़्ते बारिश होगी?",
 
       diagnoseInstruction: "पत्ते की साफ फोटो लें या चुनें",
       addPhoto: "फोटो जोड़ें",
@@ -396,16 +384,9 @@
       bestMatch: "सबसे अच्छा विकल्प",
       startOver: "फिर से शुरू करें",
       recommendResultIntro: "आपके खेत के लिए अच्छी फ़सलें",
-      recommendError: "अभी सुझाव नहीं मिल पाए। कृपया फिर से कोशिश करें।",
-      recommendAskLead: "पूछिए क्या उगाएं — बस बोलिए।",
-      askMeToGrow: "पूछें क्या उगाएं",
       orTypeQuestion: "या अपना सवाल लिखें",
-      recommendQuestionPlaceholder: "जैसे: टमाटर के बाद क्या उगाएं?",
       askBtn: "पूछें",
       askAgain: "फिर से पूछें",
-      recommendAskEmpty: "कृपया पहले एक सवाल पूछें।",
-      recommendYouAsked: function (q) { return "आपने पूछा: " + q; },
-      recommendVoiceSummary: function (crop) { return crop + " आपके लिए सबसे अच्छा विकल्प है"; },
 
       alertsTitle: "आपकी सूचनाएं",
       alertsEmpty: "अभी कोई सूचना नहीं है। खेत के पास खतरा होने पर हम आपको बताएंगे।",
@@ -419,8 +400,6 @@
         return n === 1 ? "आपके लिए 1 नई सूचना है" : "आपके लिए " + n + " नई सूचनाएं हैं";
       },
 
-      reportsCardTitle: "मेरी रिपोर्ट",
-      reportsCardSub: "अपनी पिछली जांच देखें",
       reportsTitle: "आपकी रिपोर्ट",
       reportsEmpty: "आपने अभी तक किसी फ़सल की जांच नहीं की है।",
       reportsLoadError: "रिपोर्ट लोड नहीं हो पाईं। कृपया इंटरनेट जांचें।",
@@ -471,16 +450,10 @@
       groundwater: { shallow: "कम गहरा", medium: "मध्यम", deep: "ज़्यादा गहरा" },
       tiers: { watch: "नज़र रखें", warning: "चेतावनी", alert: "खतरा" },
 
-      runDemo: "डेमो चलाएं",
       demoSectionTitle: "डेमो",
       resetDemo: "डेमो डेटा रीसेट करें",
       resetDemoDone: "डेमो डेटा साफ़ स्थिति में रीसेट हो गया।",
       resetDemoError: "डेमो डेटा रीसेट नहीं हो पाया। कृपया फिर से कोशिश करें।",
-      demoLoading: "डेमो शुरू हो रहा है…",
-      demoError: "डेमो के लिए डेटाबेस ज़रूरी है। कृपया फिर से कोशिश करें।",
-      demoNext: "आगे",
-      demoExit: "डेमो बंद करें",
-      demoReplay: "फिर से चलाएं",
 
       skipIntro: "इंट्रो छोड़ें",
       watchIntro: "इंट्रो देखें",
@@ -493,12 +466,7 @@
       introScene3: "KisanMate दो बीमारियों के बीच पक्का नहीं है, इसलिए अंदाज़ा लगाने के बजाय यह मामला स्थानीय अधिकारी को भेजता है।",
       introScene4: "एक कृषि अधिकारी इसे देखकर पछेती झुलसा की पुष्टि करते हैं।",
       introScene5: "क्योंकि यह फैलती है, पास के टमाटर किसानों को तुरंत चेतावनी मिलती है। पड़ोस के धान किसान को नहीं — सिर्फ़ उन्हें जो सच में ख़तरे में हैं।",
-      introScene6: "यह है KisanMate। चलिए शुरू करें।",
-      demoStepOf: function (n, total) { return "चरण " + n + " / " + total; },
-      demoStep1: "मिलिए रमेश से, गुंटूर के पास एक टमाटर किसान। KisanMate उनकी मिट्टी, पानी और बारिश देखकर सबसे अच्छी फ़सलें सुझाता है — टमाटर उनकी ज़मीन के लिए बढ़िया है।",
-      demoStep2: "रमेश एक बीमार पत्ते की फोटो लेते हैं। कैमरा अगेती झुलसा की ओर झुकता है, पर ठंडा-नम मौसम पछेती झुलसा बताता है — जो एक फैलने वाली बीमारी है। मतभेद होने पर KisanMate अंदाज़ा नहीं लगाता: यह मामला विशेषज्ञ को भेज देता है।",
-      demoStep3: "एक RSK अधिकारी फोटो देखकर पछेती झुलसा की पुष्टि करते हैं। अधिकारी का फ़ैसला अंतिम है — यह AI से ऊपर है।",
-      demoStep4: "पुष्टि हुई फैलने वाली बीमारी एक सामुदायिक चेतावनी शुरू करती है। 3 किमी दूर टमाटर किसान लक्ष्मी को उनकी भाषा तेलुगु में चेतावनी मिलती है। पड़ोस के वेंकट धान उगाते हैं, इसलिए उन्हें परेशान नहीं किया जाता।"
+      introScene6: "यह है KisanMate। चलिए शुरू करें।"
     },
 
     te: {
@@ -509,7 +477,7 @@
       back: "వెనుకకు",
       navHome: "హోమ్",
       navDiagnose: "పరీక్ష",
-      navGrow: "పంట",
+      navReports: "నివేదికలు",
       navAlerts: "హెచ్చరికలు",
       retry: "మళ్ళీ ప్రయత్నించండి",
       cancel: "రద్దు చేయండి",
@@ -585,18 +553,22 @@
       reminderStageCare: function (crop) { return "మీ " + crop + ":"; },
 
       homeGreeting: "నమస్కారం",
+      assistantWelcome: "🙏 నమస్తే — ఈరోజు నేను మీకు ఎలా సహాయం చేయగలను?",
       tapAndSpeak: "మాట్లాడటానికి నొక్కండి",
       listening: "వింటున్నాం...",
-      micUnavailableHint: "ఈ ఫోన్‌లో వాయిస్ సదుపాయం లేదు. కింద ఉన్న బటన్లు వాడండి.",
-      micPermissionDenied: "దయచేసి మైక్‌కి అనుమతి ఇవ్వండి, లేదా కింద ఉన్న బటన్లు వాడండి.",
-      voiceNotUnderstood: "క్షమించండి, అర్థం కాలేదు. మళ్ళీ చెప్పండి లేదా కింద ఉన్న బటన్లు వాడండి.",
+      micUnavailableHint: "ఈ ఫోన్‌లో వాయిస్ సదుపాయం లేదు. కింద టెక్స్ట్ బాక్స్ వాడండి.",
+      micPermissionDenied: "దయచేసి మైక్‌కి అనుమతి ఇవ్వండి, లేదా కింద మీ ప్రశ్న టైప్ చేయండి.",
+      voiceNotUnderstood: "క్షమించండి, అర్థం కాలేదు. మళ్ళీ చెప్పండి లేదా కింద మీ ప్రశ్న టైప్ చేయండి.",
       diagnoseCardTitle: "పంటను పరీక్షించండి",
       diagnoseCardSub: "మొక్క ఫోటో తీయండి",
-      recommendCardTitle: "ఏమి పండించాలి?",
-      recommendCardSub: "పంట సలహాలు పొందండి",
-      voiceOpeningDiagnose: "పంట పరీక్ష తెరుస్తున్నాం",
-      voiceOpeningRecommend: "పంట సలహాలు తెరుస్తున్నాం",
-      voiceOpeningAlerts: "మీ హెచ్చరికలు తెరుస్తున్నాం",
+      assistantQuestionPlaceholder: "ఉదా. టమాటా తర్వాత ఏమి పండించాలి?",
+      assistantYouAsked: function (q) { return "మీరు అడిగారు: " + q; },
+      assistantAskEmpty: "దయచేసి ముందు ఒక ప్రశ్న అడగండి.",
+      assistantError: "ప్రస్తుతం సమాధానం దొరకలేదు. దయచేసి మళ్ళీ ప్రయత్నించండి.",
+      chipGrow: "ఏమి పండించాలి?",
+      chipMandi: "ఈరోజు టమాటా ధర",
+      chipFertilizer: "నా పంటకు ఏ ఎరువు?",
+      chipWeather: "ఈ వారం వర్షం పడుతుందా?",
 
       diagnoseInstruction: "ఆకు యొక్క స్పష్టమైన ఫోటో తీయండి లేదా ఎంచుకోండి",
       addPhoto: "ఫోటో జోడించండి",
@@ -637,16 +609,9 @@
       bestMatch: "ఉత్తమ ఎంపిక",
       startOver: "మళ్ళీ మొదలు పెట్టండి",
       recommendResultIntro: "మీ పొలానికి మంచి పంటలు",
-      recommendError: "ప్రస్తుతం సలహాలు పొందలేకపోయాము. దయచేసి మళ్ళీ ప్రయత్నించండి.",
-      recommendAskLead: "ఏమి పండించాలో అడగండి — మాట్లాడండి చాలు.",
-      askMeToGrow: "ఏమి పండించాలో అడగండి",
       orTypeQuestion: "లేదా మీ ప్రశ్న టైప్ చేయండి",
-      recommendQuestionPlaceholder: "ఉదా. టమాటా తర్వాత ఏమి పండించాలి?",
       askBtn: "అడగండి",
       askAgain: "మళ్ళీ అడగండి",
-      recommendAskEmpty: "దయచేసి ముందు ఒక ప్రశ్న అడగండి.",
-      recommendYouAsked: function (q) { return "మీరు అడిగారు: " + q; },
-      recommendVoiceSummary: function (crop) { return crop + " మీకు ఉత్తమమైనది"; },
 
       alertsTitle: "మీ హెచ్చరికలు",
       alertsEmpty: "ప్రస్తుతం హెచ్చరికలు లేవు. మీ పొలం దగ్గర ప్రమాదం ఉంటే మేము మీకు తెలియజేస్తాము.",
@@ -660,8 +625,6 @@
         return n === 1 ? "మీకు 1 కొత్త హెచ్చరిక ఉంది" : "మీకు " + n + " కొత్త హెచ్చరికలు ఉన్నాయి";
       },
 
-      reportsCardTitle: "నా నివేదికలు",
-      reportsCardSub: "మీ గత పరీక్షలు చూడండి",
       reportsTitle: "మీ నివేదికలు",
       reportsEmpty: "మీరు ఇంకా ఏ పంటనూ పరీక్షించలేదు.",
       reportsLoadError: "నివేదికలు లోడ్ కాలేదు. దయచేసి ఇంటర్నెట్ చూడండి.",
@@ -712,16 +675,10 @@
       groundwater: { shallow: "తక్కువ లోతు", medium: "మధ్యస్థం", deep: "ఎక్కువ లోతు" },
       tiers: { watch: "గమనించండి", warning: "హెచ్చరిక", alert: "ప్రమాదం" },
 
-      runDemo: "డెమో చూడండి",
       demoSectionTitle: "డెమో",
       resetDemo: "డెమో డేటా రీసెట్ చేయి",
       resetDemoDone: "డెమో డేటా శుభ్రమైన స్థితికి రీసెట్ అయింది.",
       resetDemoError: "డెమో డేటా రీసెట్ చేయలేకపోయాము. దయచేసి మళ్ళీ ప్రయత్నించండి.",
-      demoLoading: "డెమో మొదలవుతోంది…",
-      demoError: "డెమోకి డేటాబేస్ అవసరం. దయచేసి మళ్ళీ ప్రయత్నించండి.",
-      demoNext: "తర్వాత",
-      demoExit: "డెమో మూసివేయి",
-      demoReplay: "మళ్ళీ చూడండి",
 
       skipIntro: "ఇంట్రో దాటవేయి",
       watchIntro: "ఇంట్రో చూడండి",
@@ -734,32 +691,7 @@
       introScene3: "KisanMate రెండు వ్యాధుల మధ్య ఖచ్చితంగా చెప్పలేకపోతోంది, కాబట్టి ఊహించకుండా కేసును స్థానిక అధికారికి పంపుతుంది.",
       introScene4: "ఒక వ్యవసాయ అధికారి దీన్ని సమీక్షించి ఆలస్య తెగులు అని నిర్ధారిస్తారు.",
       introScene5: "ఇది వ్యాపిస్తుంది కాబట్టి, దగ్గర్లోని టమాటా రైతులకు వెంటనే హెచ్చరిక వెళ్తుంది. పక్కనే ఉన్న వరి రైతుకు కాదు — నిజంగా ప్రమాదంలో ఉన్నవారికే.",
-      introScene6: "ఇదే KisanMate. మొదలుపెడదాం.",
-      demoStepOf: function (n, total) { return "అడుగు " + n + " / " + total; },
-      demoStep1: "గుంటూరు దగ్గర టమాటా రైతు రమేష్‌ను కలవండి. KisanMate అతని నేల, నీరు, వర్షపాతం చూసి మంచి పంటలను సూచిస్తుంది — టమాటా అతని భూమికి బాగా సరిపోతుంది.",
-      demoStep2: "రమేష్ ఒక వ్యాధిగ్రస్త ఆకు ఫోటో తీస్తాడు. కెమెరా త్వరిత తెగులు వైపు మొగ్గు చూపుతుంది, కానీ చల్లని తడి వాతావరణం ఆలస్య తెగులును సూచిస్తుంది — ఇది అంటువ్యాధి. విభేదం ఉన్నందున KisanMate ఊహించదు: దీన్ని నిపుణుడికి పంపుతుంది.",
-      demoStep3: "ఒక RSK అధికారి ఫోటో చూసి ఆలస్య తెగులును నిర్ధారిస్తారు. అధికారి తీర్పే అంతిమం — ఇది AIని అధిగమిస్తుంది.",
-      demoStep4: "నిర్ధారించిన అంటువ్యాధి సమాజ హెచ్చరికను ప్రేరేపిస్తుంది. 3 కి.మీ. దూరంలోని టమాటా రైతు లక్ష్మికి ఆమె భాష తెలుగులో హెచ్చరిక అందుతుంది. పక్కనే ఉన్న వెంకట్ వరి పండిస్తాడు కాబట్టి అతనికి ఇబ్బంది ఉండదు."
-    }
-  };
-
-  // Keyword lists for the Home mic's simple command router (no NLU backend
-  // exists, so we match a spoken transcript against short keyword lists).
-  var VOICE_COMMANDS = {
-    en: {
-      diagnose: ["diagnose", "crop check", "check my crop", "check crop", "photo", "camera", "sick", "disease"],
-      recommend: ["grow", "recommend", "what to grow", "suggest", "plant", "suggestion"],
-      alerts: ["alert", "alerts", "warning", "notification"]
-    },
-    hi: {
-      diagnose: ["जांच", "फसल जांच", "फोटो", "बीमारी", "पौधा"],
-      recommend: ["उगाएं", "क्या उगाएं", "सुझाव", "फसल सुझाव"],
-      alerts: ["सूचना", "चेतावनी", "अलर्ट"]
-    },
-    te: {
-      diagnose: ["పరీక్ష", "పంట పరీక్ష", "ఫోటో", "వ్యాధి"],
-      recommend: ["పండించాలి", "ఏమి పండించాలి", "సలహా", "సూచన"],
-      alerts: ["హెచ్చరిక", "సూచనలు", "అలర్ట్"]
+      introScene6: "ఇదే KisanMate. మొదలుపెడదాం."
     }
   };
 
@@ -767,5 +699,4 @@
   global.KM_LOCALE_TAGS = LOCALE_TAGS;
   global.KM_LANGUAGES = LANGUAGES;
   global.KM_CHOOSE_LANGUAGE_HEADING = CHOOSE_LANGUAGE_HEADING;
-  global.KM_VOICE_COMMANDS = VOICE_COMMANDS;
 })(window);

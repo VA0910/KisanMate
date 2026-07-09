@@ -141,9 +141,9 @@
       <span data-i18n="getStarted">Get started</span>
       <svg class="icon" aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
     </button>
-    <button type="button" id="run-demo-btn-welcome" class="demo-launch demo-launch-secondary">
+    <button type="button" id="watch-intro-btn-welcome" class="demo-launch demo-launch-secondary">
       <span class="demo-launch-icon" aria-hidden="true">▶</span>
-      <span data-i18n="runDemo">Run demo scenario</span>
+      <span data-i18n="watchIntro">Watch intro</span>
     </button>
   </section>
 
@@ -318,9 +318,9 @@
     <div class="profile-demo">
       <h2 class="profile-demo-title" data-i18n="demoSectionTitle">Demo</h2>
       <div class="demo-launch-group">
-        <button type="button" id="run-demo-btn" class="demo-launch">
+        <button type="button" id="watch-intro-btn-profile" class="demo-launch">
           <span class="demo-launch-icon" aria-hidden="true">▶</span>
-          <span data-i18n="runDemo">Run demo scenario</span>
+          <span data-i18n="watchIntro">Watch intro</span>
         </button>
         <button type="button" id="reset-demo-btn" class="demo-reset" data-i18n="resetDemo">Reset demo data</button>
       </div>
@@ -330,7 +330,7 @@
   <!-- Screen 2: home -->
   <section id="screen-home" hidden aria-labelledby="home-heading">
     <h1 id="home-heading" data-i18n="homeGreeting">Welcome</h1>
-    <p class="tagline" data-i18n="tagline">Your farm helper</p>
+    <p class="tagline" data-i18n="assistantWelcome">🙏 Namaste — how can I help you today?</p>
 
     <!-- Proactive cycle-based reminders, computed on load from planting dates -->
     <section id="reminders-card" class="reminders-card" hidden aria-labelledby="reminders-heading">
@@ -349,21 +349,43 @@
       <p id="mic-hint" class="mic-hint" aria-live="polite"></p>
     </div>
 
+    <form id="assistant-text-form" class="recommend-text-form" novalidate>
+      <label class="field-label" for="assistant-text-input" data-i18n="orTypeQuestion">Or type your question</label>
+      <input type="text" id="assistant-text-input" class="text-input" autocomplete="off"
+             data-i18n-placeholder="assistantQuestionPlaceholder" placeholder="e.g. what should I grow after tomatoes?">
+      <button type="submit" id="assistant-ask-btn" class="btn btn-primary btn-block" data-i18n="askBtn">Ask</button>
+    </form>
+
+    <div id="assistant-chips" class="assistant-chips">
+      <button type="button" class="example-chip" data-chip="chipGrow" data-i18n="chipGrow">What should I grow?</button>
+      <button type="button" class="example-chip" data-chip="chipMandi" data-i18n="chipMandi">Today's tomato price</button>
+      <button type="button" class="example-chip" data-chip="chipFertilizer" data-i18n="chipFertilizer">Which fertiliser for my crop?</button>
+      <button type="button" class="example-chip" data-chip="chipWeather" data-i18n="chipWeather">Will it rain this week?</button>
+    </div>
+
+    <div id="assistant-thinking" hidden class="thinking-state">
+      <svg class="icon icon-lg spinner-icon" aria-hidden="true"><use href="#icon-spinner"></use></svg>
+      <p data-i18n="thinking">Thinking...</p>
+    </div>
+
+    <div id="assistant-answer" hidden class="result-card" aria-live="polite">
+      <p id="assistant-question" class="recommend-question" hidden></p>
+      <p id="assistant-answer-text"></p>
+      <ul id="assistant-citations" class="assistant-citations" hidden></ul>
+      <div class="result-actions">
+        <button type="button" id="assistant-play-btn" class="btn btn-secondary">
+          <svg class="icon" aria-hidden="true"><use href="#icon-speaker"></use></svg>
+          <span data-i18n="playAudio">Play</span>
+        </button>
+        <button type="button" id="assistant-ask-again-btn" class="btn btn-secondary" data-i18n="askAgain">Ask again</button>
+      </div>
+    </div>
+
     <div class="home-actions">
       <button type="button" id="go-diagnose-btn" class="action-card">
         <svg class="icon icon-md" aria-hidden="true"><use href="#icon-camera"></use></svg>
         <span class="action-card-title" data-i18n="diagnoseCardTitle">Diagnose my crop</span>
         <span class="action-card-sub" data-i18n="diagnoseCardSub">Take a photo of your plant</span>
-      </button>
-      <button type="button" id="go-recommend-btn" class="action-card">
-        <svg class="icon icon-md" aria-hidden="true"><use href="#icon-sprout"></use></svg>
-        <span class="action-card-title" data-i18n="recommendCardTitle">What should I grow?</span>
-        <span class="action-card-sub" data-i18n="recommendCardSub">Get crop suggestions</span>
-      </button>
-      <button type="button" id="go-reports-btn" class="action-card">
-        <svg class="icon icon-md" aria-hidden="true"><use href="#icon-check-circle"></use></svg>
-        <span class="action-card-title" data-i18n="reportsCardTitle">My reports</span>
-        <span class="action-card-sub" data-i18n="reportsCardSub">See your past diagnoses</span>
       </button>
     </div>
   </section>
@@ -477,62 +499,7 @@
     </div>
   </section>
 
-  <!-- Screen 4: recommend -->
-  <section id="screen-recommend" hidden aria-labelledby="recommend-heading">
-    <h1 id="recommend-heading" data-i18n="recommendCardTitle">What should I grow?</h1>
-
-    <div id="recommend-body" aria-live="polite">
-      <div id="recommend-ask">
-        <p class="recommend-lead" data-i18n="recommendAskLead">Ask me what to grow — just speak your question.</p>
-        <div class="mic-wrap">
-          <button type="button" id="recommend-mic-btn" class="mic-btn" aria-pressed="false" aria-labelledby="recommend-mic-status">
-            <svg class="icon icon-lg" aria-hidden="true"><use href="#icon-mic"></use></svg>
-          </button>
-          <p id="recommend-mic-status" class="mic-status-text" data-i18n="askMeToGrow">Ask me what to grow</p>
-          <p id="recommend-mic-hint" class="mic-hint" aria-live="polite"></p>
-        </div>
-        <p id="recommend-transcript" class="recommend-transcript" hidden></p>
-        <form id="recommend-text-form" class="recommend-text-form" novalidate>
-          <label class="field-label" for="recommend-text-input" data-i18n="orTypeQuestion">Or type your question</label>
-          <input type="text" id="recommend-text-input" class="text-input" autocomplete="off"
-                 data-i18n-placeholder="recommendQuestionPlaceholder" placeholder="e.g. what should I grow after tomatoes?">
-          <button type="submit" id="recommend-ask-btn" class="btn btn-primary btn-block" data-i18n="askBtn">Ask</button>
-        </form>
-      </div>
-
-      <div id="recommend-thinking" hidden class="thinking-state">
-        <svg class="icon icon-lg spinner-icon" aria-hidden="true"><use href="#icon-spinner"></use></svg>
-        <p data-i18n="thinking">Thinking...</p>
-        <p class="text-muted" data-i18n="thinkingSub">This can take a few seconds</p>
-      </div>
-
-      <div id="recommend-result" hidden>
-        <p id="recommend-question" class="recommend-question" hidden></p>
-        <ul id="recommend-list" class="reco-list"></ul>
-        <div class="result-actions">
-          <button type="button" id="recommend-play-btn" class="btn btn-secondary">
-            <svg class="icon" aria-hidden="true"><use href="#icon-speaker"></use></svg>
-            <span data-i18n="playAudio">Play</span>
-          </button>
-          <button type="button" id="recommend-start-over-btn" class="btn btn-secondary">
-            <svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
-            <span data-i18n="askAgain">Ask again</span>
-          </button>
-        </div>
-      </div>
-
-      <div id="recommend-error" hidden class="error-state">
-        <svg class="icon icon-lg" aria-hidden="true"><use href="#icon-alert-triangle"></use></svg>
-        <p id="recommend-error-msg"></p>
-        <button type="button" id="recommend-retry-btn" class="btn btn-primary">
-          <svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
-          <span data-i18n="retry">Try again</span>
-        </button>
-      </div>
-    </div>
-  </section>
-
-  <!-- Screen 5: alerts -->
+  <!-- Screen 4: alerts -->
   <section id="screen-alerts" hidden aria-labelledby="alerts-heading">
     <h1 id="alerts-heading" data-i18n="alertsTitle">Your Alerts</h1>
 
@@ -560,7 +527,7 @@
     </div>
   </section>
 
-  <!-- Screen 6: my reports (past diagnoses + any RSK officer verdict) -->
+  <!-- Screen 5: my reports (past diagnoses + any RSK officer verdict) -->
   <section id="screen-reports" hidden aria-labelledby="reports-heading">
     <h1 id="reports-heading" data-i18n="reportsTitle">Your Reports</h1>
 
@@ -588,8 +555,6 @@
     </div>
   </section>
 
-  <!-- Staged officer-portal view shown during the guided demo's officer beat -->
-  <div id="demo-officer" hidden></div>
 </main>
 
 <nav class="bottom-nav" id="bottom-nav" aria-label="Main" hidden>
@@ -601,31 +566,15 @@
     <svg class="icon" aria-hidden="true"><use href="#icon-camera"></use></svg>
     <span data-i18n="navDiagnose">Diagnose</span>
   </button>
-  <button type="button" class="nav-btn" data-target="recommend">
-    <svg class="icon" aria-hidden="true"><use href="#icon-sprout"></use></svg>
-    <span data-i18n="navGrow">Grow</span>
+  <button type="button" class="nav-btn" data-target="reports">
+    <svg class="icon" aria-hidden="true"><use href="#icon-check-circle"></use></svg>
+    <span data-i18n="navReports">Reports</span>
   </button>
   <button type="button" class="nav-btn" data-target="alerts">
     <svg class="icon" aria-hidden="true"><use href="#icon-bell"></use></svg>
     <span data-i18n="navAlerts">Alerts</span>
   </button>
 </nav>
-
-<div id="demo-overlay" class="demo-overlay" hidden role="region" aria-label="Guided demo">
-  <div class="demo-bar">
-    <div class="demo-progress" aria-hidden="true"><span id="demo-progress-fill" class="demo-progress-fill"></span></div>
-    <p id="demo-step" class="demo-step"></p>
-    <p id="demo-caption" class="demo-caption" tabindex="-1" aria-live="polite"></p>
-    <div class="demo-controls">
-      <button type="button" id="demo-replay-btn" class="btn btn-secondary" hidden>
-        <svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
-        <span data-i18n="demoReplay">Replay</span>
-      </button>
-      <button type="button" id="demo-next-btn" class="btn btn-secondary" data-i18n="demoNext">Next</button>
-      <button type="button" id="demo-exit-btn" class="btn btn-primary" data-i18n="demoExit">Exit demo</button>
-    </div>
-  </div>
-</div>
 
 <!-- Cinematic intro: scripted, pre-staged scenes (no live AI), auto-advancing -->
 <div id="intro-overlay" class="intro-overlay" hidden role="region" aria-label="KisanMate intro">

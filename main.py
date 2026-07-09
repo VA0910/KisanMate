@@ -12,8 +12,10 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import assistant as assistant_mod
 import demo
 import firestore_client
+import mandi
 import services
 import weather as weather_source
 from engine.crop_recommender import current_season, rank_crops
@@ -450,9 +452,10 @@ def search_places(q: str = ""):
 NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 
 
-def _reverse_geocode(lat: float, lng: float) -> Optional[str]:
-    """Look up a human-readable place name for a coordinate via Nominatim's
-    reverse geocoder. Returns None if nothing usable comes back."""
+def _reverse_geocode_lookup(lat: float, lng: float) -> dict:
+    """Raw Nominatim reverse-geocode response for a coordinate (shared by the
+    place-name lookup below and the assistant's mandi-price state/district
+    lookup)."""
     params = urllib.parse.urlencode(
         {"lat": lat, "lon": lng, "format": "jsonv2", "addressdetails": 1, "zoom": 12}
     )
@@ -461,8 +464,13 @@ def _reverse_geocode(lat: float, lng: float) -> Optional[str]:
         headers={"User-Agent": "KisanMate/1.0 (agriculture assistant demo)"},
     )
     with urllib.request.urlopen(req, timeout=6) as resp:
-        item = json.load(resp)
+        return json.load(resp)
 
+
+def _reverse_geocode(lat: float, lng: float) -> Optional[str]:
+    """Look up a human-readable place name for a coordinate via Nominatim's
+    reverse geocoder. Returns None if nothing usable comes back."""
+    item = _reverse_geocode_lookup(lat, lng)
     addr = item.get("address", {})
     locality = (
         addr.get("city")
@@ -475,6 +483,17 @@ def _reverse_geocode(lat: float, lng: float) -> Optional[str]:
     region = addr.get("state") or addr.get("state_district") or ""
     label = ", ".join(p for p in (locality, region) if p) or item.get("display_name")
     return label or None
+
+
+def _farmer_admin_area(lat: float, lng: float) -> tuple[Optional[str], Optional[str]]:
+    """(state, district) for a coordinate, via the same Nominatim reverse lookup
+    -- used to scope the assistant's mandi-price filters. Returns (None, None)
+    on any failure; callers already treat that as "no location hint"."""
+    try:
+        addr = _reverse_geocode_lookup(lat, lng).get("address", {})
+    except Exception:
+        return None, None
+    return addr.get("state"), (addr.get("state_district") or addr.get("county"))
 
 
 @app.get("/api/places/reverse")
@@ -1095,36 +1114,23 @@ def recommend(request: RecommendRequest):
     }
 
 
-class RecommendAskRequest(BaseModel):
-    farmer_id: str
-    question: str = ""
-
-
-@app.post("/api/recommend/ask")
-def recommend_ask(request: RecommendAskRequest):
-    """Conversational, voice-first crop recommendation (PROJECT_SPEC.md).
+def _crop_recommendation_answer(farmer: Optional[Farmer], question: str, lang: str) -> dict:
+    """Grounded, conversational crop recommendation -- shared by /api/recommend/ask
+    and the assistant's crop_recommendation intent (main.py, don't rebuild this).
 
     Takes the farmer's free-form question plus their full profile context (soil,
     location, season/weather from today's date, current & recent crops) and a
     GROUNDED shortlist from the crops DB, and asks Gemini for one or two specific
     crops with a structured "why" (soil, season/weather, rotation). If Gemini
     fails, falls back to the deterministic top crop(s) with a template reason --
-    same shape, so voice/UI are identical.
+    same {recommendations, spoken} shape either way.
+
+    Raises on a hard data failure (crops DB unreachable) -- callers decide how
+    to degrade (an HTTP 503 for the dedicated endpoint; a graceful spoken
+    message for the assistant).
     """
-    question = (request.question or "").strip()
-
-    try:
-        farmer = firestore_client.get_farmer(request.farmer_id)
-    except Exception:
-        farmer = None
-    lang = farmer.lang if farmer else "en"
     season = current_season()
-
-    try:
-        crops = firestore_client.list_crops()
-    except Exception as exc:
-        _log_event("recommend_ask_error", "deterministic", str(exc))
-        raise HTTPException(status_code=503, detail="recommendation temporarily unavailable")
+    crops = firestore_client.list_crops()  # may raise -- caller's problem to handle
 
     soil_type = farmer.soil_type if farmer else None
     docs_by_id = {c.id: c for c in crops}
@@ -1177,20 +1183,193 @@ def recommend_ask(request: RecommendAskRequest):
     }
 
     try:
-        result = recommend_conversational(question, profile, grounding, lang)
+        return recommend_conversational(question, profile, grounding, lang)
     except RecommendExplainError as exc:
         _log_fallback("recommend_ask_fallback", str(exc))
         candidates = [
             {"crop_id": g["crop_id"], "names": docs_by_id[g["crop_id"]].names.model_dump()}
             for g in grounding
         ]
-        result = fallback_recommendation(candidates, soil_type, season, prev_crop_name, lang)
+        return fallback_recommendation(candidates, soil_type, season, prev_crop_name, lang)
+
+
+class RecommendAskRequest(BaseModel):
+    farmer_id: str
+    question: str = ""
+
+
+@app.post("/api/recommend/ask")
+def recommend_ask(request: RecommendAskRequest):
+    """Conversational, voice-first crop recommendation (PROJECT_SPEC.md)."""
+    question = (request.question or "").strip()
+
+    try:
+        farmer = firestore_client.get_farmer(request.farmer_id)
+    except Exception:
+        farmer = None
+    lang = farmer.lang if farmer else "en"
+
+    try:
+        result = _crop_recommendation_answer(farmer, question, lang)
+    except Exception as exc:
+        _log_event("recommend_ask_error", "deterministic", str(exc))
+        raise HTTPException(status_code=503, detail="recommendation temporarily unavailable")
 
     return {
         "farmer_id": request.farmer_id,
         "question": question,
         "recommendations": result["recommendations"],
         "spoken": result["spoken"],
+    }
+
+
+# --- farm assistant: one voice/text entry -> intent classifier -> handlers -----
+# (PROJECT_SPEC.md voice upgrade). See assistant.py for the classifier + the
+# Gemini-guardrailed handlers (fertilizer_advice, general_farming_qa); the
+# other handlers below just narrate data this app already fetches elsewhere.
+
+def _resolved_lang(request_lang: Optional[str], farmer: Optional[Farmer]) -> str:
+    if request_lang in ("en", "hi", "te"):
+        return request_lang
+    if farmer is not None and farmer.lang in ("en", "hi", "te"):
+        return farmer.lang
+    return "en"
+
+
+def _handle_crop_recommendation(farmer, text, intent, lang) -> dict:
+    try:
+        result = _crop_recommendation_answer(farmer, text, lang)
+        return {"answer_text": result["spoken"], "data": {"recommendations": result["recommendations"]}}
+    except Exception as exc:
+        _log_event("assistant_recommend_fallback", "deterministic", str(exc), fallback_used=True)
+        return {"answer_text": assistant_mod.farming_qa_unavailable_text(lang), "data": {}}
+
+
+def _handle_weather_advice(farmer, text, intent, lang) -> dict:
+    if farmer is None:
+        return {"answer_text": assistant_mod.weather_advice_unavailable_text(lang), "data": {}}
+    try:
+        forecast = weather_source.get_forecast(farmer.location.lat, farmer.location.lng)
+    except Exception as exc:
+        _log_event("assistant_weather_fallback", "weather", str(exc), fallback_used=True)
+        return {"answer_text": assistant_mod.weather_advice_unavailable_text(lang), "data": {}}
+    _log_event("assistant_weather_used", "weather", f"dry_spell={forecast.dry_spell}", fallback_used=False)
+    return {"answer_text": assistant_mod.weather_advice_text(forecast, lang), "data": forecast.model_dump()}
+
+
+def _handle_mandi_price(farmer, text, intent, lang) -> dict:
+    commodity = (intent.commodity or intent.crop or "").strip()
+    if not commodity:
+        return {"answer_text": assistant_mod.mandi_need_commodity_text(lang), "data": {}}
+
+    state = district = None
+    if farmer is not None:
+        state, district = _farmer_admin_area(farmer.location.lat, farmer.location.lng)
+    district = (intent.location or "").strip() or district or (farmer.location.mandal if farmer else None)
+
+    try:
+        price = mandi.get_price(commodity, state=state, district=district)
+    except Exception as exc:
+        _log_event("assistant_mandi_fallback", "mandi", str(exc), fallback_used=True)
+        price = None
+
+    if price is None:
+        _log_event("assistant_mandi_no_rate", "mandi", f"commodity={commodity}", fallback_used=True)
+        return {"answer_text": assistant_mod.mandi_no_rate_text(commodity, lang), "data": {}}
+
+    _log_event("assistant_mandi_used", "mandi", f"commodity={commodity}", fallback_used=False)
+    return {"answer_text": assistant_mod.mandi_price_text(price, lang), "data": price}
+
+
+def _handle_fertilizer_advice(farmer, text, intent, lang) -> dict:
+    crop = intent.crop or (farmer.crop if farmer else None)
+    context = None
+    if farmer is not None:
+        try:
+            context = build_context(farmer)
+        except Exception:
+            context = None
+    profile = {
+        "crop": crop,
+        "soil_type": farmer.soil_type if farmer else None,
+        "growth_stage": context.growth_stage if context else None,
+    }
+    try:
+        result = assistant_mod.fertilizer_advice(text, profile, lang)
+        return {"answer_text": result["answer_text"], "data": {"crop": crop}}
+    except assistant_mod.FertilizerAdviceError as exc:
+        _log_fallback("assistant_fertilizer_fallback", str(exc))
+        fallback = assistant_mod.fallback_fertilizer_advice(crop, lang)
+        return {"answer_text": fallback["answer_text"], "data": {"crop": crop}}
+
+
+def _handle_general_farming_qa(farmer, text, intent, lang) -> dict:
+    try:
+        result = assistant_mod.general_farming_qa(text, lang)
+        return {"answer_text": result["answer_text"], "data": {}, "citations": result["citations"]}
+    except assistant_mod.FarmingQAError as exc:
+        _log_fallback("assistant_general_qa_fallback", str(exc))
+        return {"answer_text": assistant_mod.farming_qa_unavailable_text(lang), "data": {}, "citations": []}
+
+
+_ASSISTANT_HANDLERS = {
+    "crop_recommendation": _handle_crop_recommendation,
+    "weather_advice": _handle_weather_advice,
+    "mandi_price": _handle_mandi_price,
+    "fertilizer_advice": _handle_fertilizer_advice,
+    "general_farming_qa": _handle_general_farming_qa,
+}
+
+
+class AssistantRequest(BaseModel):
+    text: str
+    lang: str = "en"
+    farmer_id: str
+
+
+@app.post("/assistant")
+def assistant(request: AssistantRequest):
+    """One voice/text entry point for the farm assistant: classifies the
+    farmer's free-form question, then routes to a small, fixed set of
+    handlers -- an INTENT CLASSIFIER -> HANDLERS architecture, not a general
+    chatbot. Every path degrades to a farmer-facing message (never a raw
+    error) and logs telemetry at each fallback point (PROJECT_SPEC.md layer 3).
+    """
+    text = (request.text or "").strip()
+    try:
+        farmer = firestore_client.get_farmer(request.farmer_id)
+    except Exception:
+        farmer = None
+    lang = _resolved_lang(request.lang, farmer)
+
+    if not text:
+        return {"intent": "off_topic", "answer_text": assistant_mod.off_topic_refusal_text(lang),
+                "data": {}, "citations": [], "lang": lang}
+
+    try:
+        intent = assistant_mod.classify_intent(text, lang)
+    except assistant_mod.IntentClassifyError as exc:
+        _log_event("assistant_classify_fallback", "ai_content", str(exc), fallback_used=True)
+        intent = assistant_mod.keyword_intent(text, lang)
+
+    # The language Gemini detected in the farmer's own words wins over the
+    # app's current UI language, when it's one we support.
+    if intent.lang in ("en", "hi", "te"):
+        lang = intent.lang
+
+    if not intent.on_topic or intent.intent == "off_topic":
+        _log_event("assistant_off_topic", "assistant", text[:120])
+        return {"intent": "off_topic", "answer_text": assistant_mod.off_topic_refusal_text(lang),
+                "data": {}, "citations": [], "lang": lang}
+
+    handler = _ASSISTANT_HANDLERS.get(intent.intent, _handle_general_farming_qa)
+    result = handler(farmer, text, intent, lang)
+    return {
+        "intent": intent.intent,
+        "answer_text": result["answer_text"],
+        "data": result.get("data") or {},
+        "citations": result.get("citations") or [],
+        "lang": lang,
     }
 
 

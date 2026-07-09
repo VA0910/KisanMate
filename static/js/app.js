@@ -11,7 +11,7 @@
 
   var SESSION_KEY = "kisanmate_session";
   // The screens that make up the signed-in app (bottom nav shows only on these).
-  var APP_SCREENS = { home: true, diagnose: true, recommend: true, alerts: true, profile: true, reports: true };
+  var APP_SCREENS = { home: true, diagnose: true, alerts: true, profile: true, reports: true };
 
   var SOIL_OPTIONS = ["alluvial", "black", "loamy", "red", "sandy"];
   var ZONE_OPTIONS = ["delta", "coastal", "upland", "semi_arid"];
@@ -19,7 +19,6 @@
   var GROUNDWATER_OPTIONS = ["shallow", "medium", "deep"];
   var RAINFALL_MM = { low: 300, medium: 650, high: 1000 };
   var GROUNDWATER_M = { shallow: 3, medium: 10, deep: 20 };
-  var CROP_EMOJI = { rice: "🌾", tomato: "🍅", chili: "🌶️", cotton: "🌱", groundnut: "🥜", maize: "🌽" };
   var TIER_ICON = {
     watch: "icon-info-circle", warning: "icon-alert-triangle", alert: "icon-alert-octagon",
     confirmed: "icon-check-circle"
@@ -34,7 +33,6 @@
     profile: "screen-profile",
     home: "screen-home",
     diagnose: "screen-diagnose",
-    recommend: "screen-recommend",
     alerts: "screen-alerts",
     reports: "screen-reports"
   };
@@ -49,8 +47,7 @@
     lastDiagnoseCaseId: null,
     lastDiagnoseMessage: "",
     recommendSelections: { soil: null, zone: null, rainfall: null, groundwater: null },
-    pendingPhone: null,
-    demoActive: false
+    pendingPhone: null
   };
 
   if (state.lang && !window.KM_STRINGS[state.lang]) state.lang = null;
@@ -173,15 +170,19 @@
 
   // ---- routing ---------------------------------------------------------------
 
+  function enterHome() {
+    loadReminders();
+    resetAssistantAnswer();
+  }
+
   var SCREEN_ENTER_HOOKS = {
-    home: loadReminders,
+    home: enterHome,
     diagnose: resetDiagnoseScreen,
-    recommend: resetRecommendScreen,
     alerts: loadAlerts,
     reports: loadMyCases
   };
 
-  function showScreen(name, skipHook) {
+  function showScreen(name) {
     // Release the camera if we're leaving the diagnose screen with it still open.
     if (name !== "diagnose" && state.cameraStream) stopCamera();
 
@@ -192,22 +193,20 @@
     state.screen = name;
 
     // The bottom nav shows only on the signed-in app screens -- never during
-    // onboarding (welcome/language/phone/otp/profile) or the guided demo.
+    // onboarding (welcome/language/phone/otp/profile).
     var bottomNav = $("bottom-nav");
-    if (bottomNav) bottomNav.hidden = !APP_SCREENS[name] || state.demoActive;
+    if (bottomNav) bottomNav.hidden = !APP_SCREENS[name];
     document.querySelectorAll(".nav-btn").forEach(function (btn) {
       if (btn.getAttribute("data-target") === name) btn.setAttribute("aria-current", "page");
       else btn.removeAttribute("aria-current");
     });
 
-    // Enter hooks (e.g. loading alerts) are skipped during the demo, which
-    // supplies its own data instead of hitting the live endpoints.
     var hook = SCREEN_ENTER_HOOKS[name];
-    if (hook && !skipHook) hook();
+    if (hook) hook();
 
     var section = $(SECTION_IDS[name]);
     var heading = section && section.querySelector("h1, h2");
-    if (heading && !state.demoActive) {
+    if (heading) {
       if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
       heading.focus();
     }
@@ -263,7 +262,7 @@
   function loadReminders() {
     var card = $("reminders-card");
     if (!card) return;
-    if (!isSignedIn() || state.demoActive) { card.hidden = true; return; }
+    if (!isSignedIn()) { card.hidden = true; return; }
     window.KM_API.getReminders(state.farmerId)
       .then(renderReminders)
       .catch(function () { card.hidden = true; }); // silent: reminders are a bonus, never an error
@@ -329,11 +328,25 @@
     card.hidden = false;
   }
 
+  // The Home mic/text box is ONE entry point into the farm assistant (backend
+  // intent classifier -> handlers) -- it no longer just routes to a screen by
+  // keyword. Diagnose stays a dedicated quick-action since it needs a photo,
+  // which voice/text can't provide.
   function wireHome() {
     $("mic-btn").addEventListener("click", handleMicTap);
     $("go-diagnose-btn").addEventListener("click", function () { showScreen("diagnose"); });
-    $("go-recommend-btn").addEventListener("click", function () { showScreen("recommend"); });
-    $("go-reports-btn").addEventListener("click", function () { showScreen("reports"); });
+    $("assistant-text-form").addEventListener("submit", function (e) {
+      e.preventDefault();
+      askAssistant(($("assistant-text-input").value || "").trim());
+    });
+    $("assistant-ask-again-btn").addEventListener("click", resetAssistantAnswer);
+    $("assistant-play-btn").addEventListener("click", function () {
+      if (state.lastAssistantSpoken) window.KM_SPEECH.speak(state.lastAssistantSpoken, localeTag());
+    });
+    if (!window.KM_SPEECH.ttsAvailable) $("assistant-play-btn").hidden = true;
+    document.querySelectorAll("#assistant-chips .example-chip").forEach(function (chip) {
+      chip.addEventListener("click", function () { askAssistant(t(chip.getAttribute("data-chip"))); });
+    });
 
     if (!window.KM_SPEECH.sttAvailable) {
       $("mic-hint").textContent = t("micUnavailableHint");
@@ -356,19 +369,6 @@
     }
   }
 
-  function matchIntent(transcript) {
-    var lower = transcript.toLowerCase();
-    var commands = window.KM_VOICE_COMMANDS[state.lang] || window.KM_VOICE_COMMANDS.en;
-    var order = ["diagnose", "recommend", "alerts"];
-    for (var i = 0; i < order.length; i++) {
-      var keywords = commands[order[i]];
-      for (var j = 0; j < keywords.length; j++) {
-        if (lower.indexOf(keywords[j].toLowerCase()) !== -1) return order[i];
-      }
-    }
-    return null;
-  }
-
   function handleMicTap() {
     if (!window.KM_SPEECH.sttAvailable) return;
     if (state.micState === "listening") {
@@ -379,20 +379,8 @@
     setMicVisual("listening");
     window.KM_SPEECH.listenOnce(localeTag(), {
       onResult: function (transcript) {
-        var intent = matchIntent(transcript);
-        if (intent === "diagnose") {
-          window.KM_SPEECH.speak(t("voiceOpeningDiagnose"), localeTag());
-          showScreen("diagnose");
-        } else if (intent === "recommend") {
-          window.KM_SPEECH.speak(t("voiceOpeningRecommend"), localeTag());
-          showScreen("recommend");
-        } else if (intent === "alerts") {
-          window.KM_SPEECH.speak(t("voiceOpeningAlerts"), localeTag());
-          showScreen("alerts");
-        } else {
-          toast(t("voiceNotUnderstood"));
-          window.KM_SPEECH.speak(t("voiceNotUnderstood"), localeTag());
-        }
+        var q = (transcript || "").trim();
+        if (q) askAssistant(q);
       },
       onError: function (kind) {
         if (kind === "not-allowed" || kind === "service-not-allowed") {
@@ -405,6 +393,62 @@
       },
       onEnd: function () { setMicVisual("idle"); }
     });
+  }
+
+  function showAssistantSubState(name) {
+    var map = { chips: "assistant-chips", thinking: "assistant-thinking", answer: "assistant-answer" };
+    Object.keys(map).forEach(function (k) { $(map[k]).hidden = k !== name; });
+  }
+
+  function resetAssistantAnswer() {
+    $("assistant-text-input").value = "";
+    showAssistantSubState("chips");
+  }
+
+  function askAssistant(text) {
+    if (!text) { toast(t("assistantAskEmpty")); return; }
+    showAssistantSubState("thinking");
+    window.KM_API.assistantAsk(state.farmerId, text, state.lang)
+      .then(function (data) { renderAssistantAnswer(text, data); })
+      .catch(function (err) {
+        showAssistantSubState("answer");
+        $("assistant-question").hidden = true;
+        $("assistant-citations").hidden = true;
+        $("assistant-answer-text").textContent = friendlyMessageFor(err, "assistantError");
+      });
+  }
+
+  function renderAssistantAnswer(question, data) {
+    var answer = (data && data.answer_text) || "";
+    state.lastAssistantSpoken = answer;
+
+    var qEl = $("assistant-question");
+    if (question) {
+      qEl.textContent = t("assistantYouAsked")(question);
+      qEl.hidden = false;
+    } else {
+      qEl.hidden = true;
+    }
+
+    $("assistant-answer-text").textContent = answer;
+
+    var citations = (data && data.citations) || [];
+    var citeList = $("assistant-citations");
+    citeList.innerHTML = "";
+    citations.forEach(function (c) {
+      var li = document.createElement("li");
+      var a = document.createElement("a");
+      a.href = c.uri;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.textContent = c.title || c.uri;
+      li.appendChild(a);
+      citeList.appendChild(li);
+    });
+    citeList.hidden = citations.length === 0;
+
+    showAssistantSubState("answer");
+    if (answer) window.KM_SPEECH.speak(answer, localeTag());
   }
 
   // ---- Diagnose ---------------------------------------------------------------
@@ -567,7 +611,7 @@
     $("dispute-thanks").hidden = true;
 
     showDiagnoseSubState("result");
-    if (!state.demoActive) window.KM_SPEECH.speak(data.message, localeTag());
+    window.KM_SPEECH.speak(data.message, localeTag());
   }
 
   // Render the structured what / why / what-to-do in separate blocks; fall back
@@ -608,153 +652,10 @@
     window.KM_SPEECH.speak(t("disputeThanks"), localeTag());
   }
 
-  // ---- Recommend (voice-first conversation) --------------------------------------
-
-  // Kept as a no-op: the recommend screen no longer uses the old chip form, but
-  // several callers (setLang, profile save, demo) still call this by name.
+  // Kept as a no-op: the old chip-based recommend form is gone (crop
+  // recommendation now runs through the Home assistant), but several callers
+  // (setLang, profile save, demo) still call this by name.
   function rebuildRecommendOptionGroups() {}
-
-  function resetRecommendScreen() {
-    state.recommendMicState = "idle";
-    state.lastRecommendSpoken = "";
-    setRecommendMicVisual("idle");
-    $("recommend-transcript").hidden = true;
-    $("recommend-transcript").textContent = "";
-    $("recommend-mic-hint").textContent = "";
-    $("recommend-text-input").value = "";
-    if (!window.KM_SPEECH.sttAvailable) {
-      // STT unavailable: point the farmer at the text box instead (logged).
-      $("recommend-mic-btn").setAttribute("aria-disabled", "true");
-      $("recommend-mic-hint").textContent = t("micUnavailableHint");
-      window.KM_API.logTelemetry({ event: "stt_unavailable", layer: "recommend", detail: {}, fallback_used: true });
-    }
-    showRecommendSubState("ask");
-  }
-
-  function wireRecommend() {
-    $("recommend-mic-btn").addEventListener("click", handleRecommendMic);
-    $("recommend-text-form").addEventListener("submit", function (e) {
-      e.preventDefault();
-      askRecommend(($("recommend-text-input").value || "").trim());
-    });
-    $("recommend-start-over-btn").addEventListener("click", resetRecommendScreen);
-    $("recommend-retry-btn").addEventListener("click", function () {
-      if (state.lastRecommendQuestion) askRecommend(state.lastRecommendQuestion);
-      else resetRecommendScreen();
-    });
-    $("recommend-play-btn").addEventListener("click", function () {
-      if (state.lastRecommendSpoken) window.KM_SPEECH.speak(state.lastRecommendSpoken, localeTag());
-    });
-    if (!window.KM_SPEECH.ttsAvailable) $("recommend-play-btn").hidden = true;
-  }
-
-  function showRecommendSubState(name) {
-    var map = { ask: "recommend-ask", thinking: "recommend-thinking", result: "recommend-result", error: "recommend-error" };
-    Object.keys(map).forEach(function (k) { $(map[k]).hidden = k !== name; });
-  }
-
-  function setRecommendMicVisual(newState) {
-    state.recommendMicState = newState;
-    var btn = $("recommend-mic-btn");
-    var status = $("recommend-mic-status");
-    if (newState === "listening") {
-      btn.classList.add("mic-listening");
-      btn.setAttribute("aria-pressed", "true");
-      status.textContent = t("listening");
-    } else {
-      btn.classList.remove("mic-listening");
-      btn.setAttribute("aria-pressed", "false");
-      status.textContent = t("askMeToGrow");
-    }
-  }
-
-  function handleRecommendMic() {
-    if (!window.KM_SPEECH.sttAvailable) {
-      // Fallback: focus the text box so the farmer can type instead.
-      $("recommend-mic-hint").textContent = t("micUnavailableHint");
-      $("recommend-text-input").focus();
-      return;
-    }
-    if (state.recommendMicState === "listening") {
-      window.KM_SPEECH.stopListening();
-      setRecommendMicVisual("idle");
-      return;
-    }
-    setRecommendMicVisual("listening");
-    window.KM_SPEECH.listenOnce(localeTag(), {
-      onResult: function (transcript) {
-        var q = (transcript || "").trim();
-        if (q) askRecommend(q);
-      },
-      onError: function (kind) {
-        if (kind === "not-allowed" || kind === "service-not-allowed") {
-          $("recommend-mic-hint").textContent = t("micPermissionDenied");
-        } else if (kind === "unsupported") {
-          $("recommend-mic-hint").textContent = t("micUnavailableHint");
-        } else {
-          $("recommend-mic-hint").textContent = t("voiceNotUnderstood");
-        }
-      },
-      onEnd: function () { setRecommendMicVisual("idle"); }
-    });
-  }
-
-  function askRecommend(question) {
-    if (!question) { $("recommend-mic-hint").textContent = t("recommendAskEmpty"); return; }
-    state.lastRecommendQuestion = question;
-    showRecommendSubState("thinking");
-    window.KM_API.recommendAsk(state.farmerId, question)
-      .then(renderRecommendResult)
-      .catch(function (err) {
-        $("recommend-error-msg").textContent = friendlyMessageFor(err, "recommendError");
-        showRecommendSubState("error");
-      });
-  }
-
-  function renderRecommendResult(data) {
-    var recs = (data && data.recommendations) || [];
-    var qEl = $("recommend-question");
-    if (data && data.question) {
-      qEl.textContent = t("recommendYouAsked")(data.question);
-      qEl.hidden = false;
-    } else {
-      qEl.hidden = true;
-    }
-
-    var list = $("recommend-list");
-    list.innerHTML = "";
-    recs.forEach(function (rec, index) {
-      var li = document.createElement("li");
-      li.className = "reco-card" + (index === 0 ? " reco-card-best" : "");
-
-      var head = document.createElement("div");
-      head.className = "reco-head";
-      var emoji = document.createElement("span");
-      emoji.className = "crop-emoji";
-      emoji.setAttribute("aria-hidden", "true");
-      emoji.textContent = CROP_EMOJI[rec.crop_id] || "🌱";
-      var name = document.createElement("span");
-      name.className = "reco-name";
-      name.textContent = rec.crop_name || rec.crop_id || "";
-      head.appendChild(emoji);
-      head.appendChild(name);
-      li.appendChild(head);
-
-      if (rec.why) {
-        var why = document.createElement("p");
-        why.className = "reco-why";
-        why.textContent = rec.why;
-        li.appendChild(why);
-      }
-      list.appendChild(li);
-    });
-
-    state.lastRecommendSpoken = (data && data.spoken) || "";
-    showRecommendSubState("result");
-    if (state.lastRecommendSpoken && !state.demoActive) {
-      window.KM_SPEECH.speak(state.lastRecommendSpoken, localeTag());
-    }
-  }
 
   // ---- Alerts ------------------------------------------------------------------
 
@@ -835,7 +736,7 @@
     });
 
     showAlertsSubState("list");
-    if (!state.demoActive) window.KM_SPEECH.speak(t("alertsSummarySpoken")(alerts.length), localeTag());
+    window.KM_SPEECH.speak(t("alertsSummarySpoken")(alerts.length), localeTag());
   }
 
   function wireAlerts() {
@@ -945,7 +846,7 @@
   // server tracks "seen" per case (verdict_seen), so it fires exactly once even
   // across devices; acknowledging marks them seen so it never repeats.
   function checkVerdictNotifications() {
-    if (!isSignedIn() || state.demoActive) return;
+    if (!isSignedIn()) return;
     window.KM_API.getNotifications(state.farmerId)
       .then(function (data) {
         var items = (data && data.notifications) || [];
@@ -984,7 +885,7 @@
     };
 
     modal.hidden = false;
-    if (!state.demoActive) window.KM_SPEECH.speak(t("verdictModalTitle"), localeTag());
+    window.KM_SPEECH.speak(t("verdictModalTitle"), localeTag());
   }
 
   // ---- language picker + header + bottom nav -------------------------------------
@@ -1581,206 +1482,7 @@
     });
   }
 
-  // ---- guided demo (the "Run demo scenario" walkthrough) --------------------------
-
-  var DEMO_STEP_MS = 4500; // minimum beat time; a scene also waits for its voice-over
-  var demoState = { narratorLang: "en", steps: [], index: -1, timer: null, maxTimer: null, gen: 0, data: null };
-
-  function demoDict() {
-    return window.KM_STRINGS[demoState.narratorLang] || window.KM_STRINGS.en;
-  }
-  function demoStr(key) {
-    return demoDict()[key];
-  }
-
-  // Switch the app UI language during the demo WITHOUT persisting it (so the
-  // judge's real choice is untouched when the demo exits).
-  function applyDemoLang(code) {
-    state.lang = code;
-    applyStrings();
-    rebuildRecommendOptionGroups();
-  }
-
-  function startDemo() {
-    demoState.narratorLang = state.lang || "en";
-    state.demoActive = true;
-    window.KM_SPEECH.stopSpeaking();
-
-    var overlay = $("demo-overlay");
-    overlay.hidden = false;
-    document.body.classList.add("demo-running");
-    $("demo-replay-btn").hidden = true;
-    $("demo-next-btn").disabled = true;
-    $("bottom-nav").hidden = true;
-    setDemoCaption("", demoStr("demoLoading"));
-    $("demo-caption").focus();
-
-    window.KM_API.demoRun(demoState.narratorLang)
-      .then(function (data) {
-        demoState.data = data;
-        demoState.steps = buildDemoSteps(data);
-        demoState.index = -1;
-        $("demo-next-btn").disabled = false;
-        advanceDemo();
-      })
-      .catch(function () {
-        setDemoCaption("", demoStr("demoError"));
-        showDemoEndControls();
-      });
-  }
-
-  function buildDemoSteps(data) {
-    return [
-      {
-        caption: demoStr("demoStep1"),
-        run: function () {
-          applyDemoLang(demoState.narratorLang);
-          showScreen("recommend", true);
-          // Map the deterministic demo data into the conversational result shape.
-          var lang = demoState.narratorLang;
-          var recs = (data.recommend.recommendations || []).slice(0, 2).map(function (r) {
-            var nm = (r.names && (r.names[lang] || r.names.en)) || r.crop;
-            return { crop_id: r.crop, crop_name: nm, why: r.reason || "" };
-          });
-          renderRecommendResult({ recommendations: recs });
-        }
-      },
-      {
-        caption: demoStr("demoStep2"),
-        run: function () {
-          showScreen("diagnose", true);
-          renderDiagnoseResult(data.diagnose);
-        },
-        speakLang: demoState.narratorLang,
-        speakText: data.diagnose.message
-      },
-      {
-        caption: demoStr("demoStep3"),
-        run: function () {
-          // Show the officer portal: the case under "AI needs review", then the
-          // officer confirming late blight. The real confirm + alert already
-          // happened server-side in /api/demo/run; this stages the portal view.
-          showStagedOfficerDemo();
-        },
-        speakText: demoStr("demoStep3")
-      },
-      {
-        caption: demoStr("demoStep4"),
-        run: function () {
-          // Show Lakshmi's alert in Telugu (the story point: she's warned in HER
-          // language) -- but the narration/voice-over stays in the viewer's chosen
-          // language, so no speakLang/speakText override here (advanceDemo speaks
-          // the caption in narratorLang).
-          applyDemoLang("te");
-          showScreen("alerts", true);
-          renderAlerts({ alerts: data.alerts.lakshmi.alerts });
-        }
-      }
-    ];
-  }
-
-  // Staged officer-portal beat for the guided demo (reuses the intro's portal
-  // markup): hide the farmer screens and show the /admin-style view in place.
-  function showStagedOfficerDemo() {
-    Object.keys(SECTION_IDS).forEach(function (k) {
-      var e = $(SECTION_IDS[k]);
-      if (e) e.hidden = true;
-    });
-    var host = $("demo-officer");
-    host.innerHTML = '<div class="intro-stage intro-enter">' + stagedOfficerHTML(demoDict(), false) + "</div>";
-    host.hidden = false;
-    var portal = host.querySelector(".intro-portal");
-    var delay = reducedMotion() ? 0 : 1500;
-    setTimeout(function () { if (portal) portal.classList.add("confirmed"); }, delay);
-  }
-
-  function advanceDemo() {
-    clearTimeout(demoState.timer);
-    clearTimeout(demoState.maxTimer);
-    var myGen = ++demoState.gen;
-    $("demo-officer").hidden = true; // each step starts clean; only the officer step shows it
-
-    demoState.index += 1;
-    var step = demoState.steps[demoState.index];
-    if (!step) return;
-
-    setDemoCaption(demoStr("demoStepOf")(demoState.index + 1, demoState.steps.length), step.caption);
-    try {
-      step.run();
-    } catch (err) {
-      /* a rendering hiccup must not halt the walkthrough */
-    }
-    updateDemoProgress();
-
-    window.KM_SPEECH.stopSpeaking();
-    var tag = window.KM_LOCALE_TAGS[step.speakLang || demoState.narratorLang] || "en-IN";
-
-    // Advance only after BOTH the minimum beat time AND the voice-over finish --
-    // the screen never changes mid-sentence. TTS is optional (speak() calls back
-    // immediately when unavailable), so captions still pace the walkthrough.
-    var isLast = demoState.index === demoState.steps.length - 1;
-    var minDone = false, speechDone = false;
-    function proceed() {
-      if (myGen !== demoState.gen) return;
-      if (!(minDone && speechDone)) return;
-      if (isLast) { showDemoEndControls(); }
-      else { $("demo-next-btn").focus(); advanceDemo(); }
-    }
-    demoState.timer = setTimeout(function () { minDone = true; proceed(); }, DEMO_STEP_MS);
-    // Safety cap so a stuck speech engine can't freeze the walkthrough.
-    demoState.maxTimer = setTimeout(function () {
-      if (myGen === demoState.gen) { isLast ? showDemoEndControls() : advanceDemo(); }
-    }, DEMO_STEP_MS + 15000);
-    window.KM_SPEECH.speak(step.speakText || step.caption, tag, function () { speechDone = true; proceed(); });
-  }
-
-  function setDemoCaption(stepLabel, caption) {
-    $("demo-step").textContent = stepLabel || "";
-    $("demo-caption").textContent = caption || "";
-  }
-
-  function updateDemoProgress() {
-    var pct = Math.round(((demoState.index + 1) / demoState.steps.length) * 100);
-    $("demo-progress-fill").style.width = pct + "%";
-  }
-
-  function showDemoEndControls() {
-    clearTimeout(demoState.timer);
-    clearTimeout(demoState.maxTimer);
-    demoState.gen++; // stop any pending scene callback
-    $("demo-next-btn").disabled = true;
-    $("demo-replay-btn").hidden = false;
-    $("demo-replay-btn").focus();
-  }
-
-  function replayDemo() {
-    if (!demoState.data) {
-      // The initial run failed to load -- treat "Replay" as a retry.
-      startDemo();
-      return;
-    }
-    window.KM_SPEECH.stopSpeaking();
-    $("demo-replay-btn").hidden = true;
-    $("demo-next-btn").disabled = false;
-    demoState.steps = buildDemoSteps(demoState.data);
-    demoState.index = -1;
-    advanceDemo();
-  }
-
-  function exitDemo() {
-    clearTimeout(demoState.timer);
-    clearTimeout(demoState.maxTimer);
-    demoState.gen++;
-    window.KM_SPEECH.stopSpeaking();
-    state.demoActive = false;
-    $("demo-overlay").hidden = true;
-    $("demo-officer").hidden = true;
-    document.body.classList.remove("demo-running");
-    applyDemoLang(demoState.narratorLang); // restore the judge's language
-    // Return to wherever the demo makes sense to exit to: the app home if signed
-    // in, otherwise back to the welcome landing (the demo can run signed-out).
-    showScreen(isSignedIn() ? "home" : "welcome");
-  }
+  // ---- demo data reset (housekeeping for the seeded demo farmers) -----------------
 
   function resetDemoData() {
     var btn = $("reset-demo-btn");
@@ -1792,15 +1494,9 @@
   }
 
   function wireDemo() {
-    $("run-demo-btn").addEventListener("click", startDemo);
-    $("run-demo-btn-welcome").addEventListener("click", startDemo);
     $("reset-demo-btn").addEventListener("click", resetDemoData);
-    $("demo-next-btn").addEventListener("click", function () {
-      clearTimeout(demoState.timer);
-      advanceDemo();
-    });
-    $("demo-replay-btn").addEventListener("click", replayDemo);
-    $("demo-exit-btn").addEventListener("click", exitDemo);
+    $("watch-intro-btn-welcome").addEventListener("click", function () { startIntro(); });
+    $("watch-intro-btn-profile").addEventListener("click", function () { startIntro(); });
   }
 
   // ---- cinematic intro (scripted, pre-staged; no live AI) -------------------------
@@ -1827,8 +1523,7 @@
     return out;
   }
 
-  // Reusable staged officer-portal view (also used by the guided demo), so the
-  // intro shows the REAL portal look driven by fixed content.
+  // Staged officer-portal view for the intro's officer scene, driven by fixed content.
   function stagedOfficerHTML(d, confirmed) {
     return '' +
       '<div class="intro-portal' + (confirmed ? " confirmed" : "") + '">' +
@@ -2009,7 +1704,6 @@
     wireBottomNav();
     wireHome();
     wireDiagnose();
-    wireRecommend();
     wireAlerts();
     wireReports();
     wireDemo();
