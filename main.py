@@ -7,7 +7,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -15,7 +15,9 @@ from pydantic import BaseModel
 import assistant as assistant_mod
 import demo
 import firestore_client
+import geocode
 import mandi
+import mandi_prewarm
 import services
 import weather as weather_source
 from engine.crop_recommender import current_season, rank_crops
@@ -116,6 +118,24 @@ def admin_login(request: AdminLoginRequest):
     if request.username == ADMIN_USERNAME and request.password == ADMIN_PASSWORD:
         return {"ok": True, "token": "officer-demo-session"}
     raise HTTPException(status_code=401, detail="incorrect username or password")
+
+
+# Daily mandi-price pre-warm (mandi_prewarm.py): meant to be called once a day
+# by Cloud Scheduler, not the officer UI, so it's guarded by a shared secret
+# instead of the demo officer login above (Cloud Scheduler can't do that
+# session flow). Unset MANDI_CRON_SECRET disables the endpoint entirely.
+MANDI_CRON_SECRET = os.environ.get("MANDI_CRON_SECRET")
+
+
+@app.post("/api/admin/mandi/refresh-cache")
+def refresh_mandi_cache(x_cron_secret: str = Header(default=None)):
+    if not MANDI_CRON_SECRET or x_cron_secret != MANDI_CRON_SECRET:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    try:
+        return mandi_prewarm.run()
+    except Exception as exc:
+        _log_event("mandi_prewarm_error", "mandi", str(exc))
+        raise HTTPException(status_code=503, detail="mandi pre-warm failed")
 
 
 class ConfirmRequest(BaseModel):
@@ -449,53 +469,6 @@ def search_places(q: str = ""):
         return {"places": []}
 
 
-NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
-
-
-def _reverse_geocode_lookup(lat: float, lng: float) -> dict:
-    """Raw Nominatim reverse-geocode response for a coordinate (shared by the
-    place-name lookup below and the assistant's mandi-price state/district
-    lookup)."""
-    params = urllib.parse.urlencode(
-        {"lat": lat, "lon": lng, "format": "jsonv2", "addressdetails": 1, "zoom": 12}
-    )
-    req = urllib.request.Request(
-        f"{NOMINATIM_REVERSE_URL}?{params}",
-        headers={"User-Agent": "KisanMate/1.0 (agriculture assistant demo)"},
-    )
-    with urllib.request.urlopen(req, timeout=6) as resp:
-        return json.load(resp)
-
-
-def _reverse_geocode(lat: float, lng: float) -> Optional[str]:
-    """Look up a human-readable place name for a coordinate via Nominatim's
-    reverse geocoder. Returns None if nothing usable comes back."""
-    item = _reverse_geocode_lookup(lat, lng)
-    addr = item.get("address", {})
-    locality = (
-        addr.get("city")
-        or addr.get("town")
-        or addr.get("village")
-        or addr.get("suburb")
-        or addr.get("county")
-        or ""
-    )
-    region = addr.get("state") or addr.get("state_district") or ""
-    label = ", ".join(p for p in (locality, region) if p) or item.get("display_name")
-    return label or None
-
-
-def _farmer_admin_area(lat: float, lng: float) -> tuple[Optional[str], Optional[str]]:
-    """(state, district) for a coordinate, via the same Nominatim reverse lookup
-    -- used to scope the assistant's mandi-price filters. Returns (None, None)
-    on any failure; callers already treat that as "no location hint"."""
-    try:
-        addr = _reverse_geocode_lookup(lat, lng).get("address", {})
-    except Exception:
-        return None, None
-    return addr.get("state"), (addr.get("state_district") or addr.get("county"))
-
-
 @app.get("/api/places/reverse")
 def reverse_place(lat: float, lng: float):
     """Reverse-geocode a device location so the picker's text field reflects
@@ -503,7 +476,7 @@ def reverse_place(lat: float, lng: float):
     Degrades silently to no name (never an error) so callers can just fall
     back to keeping whatever text was already shown."""
     try:
-        return {"name": _reverse_geocode(lat, lng)}
+        return {"name": geocode.reverse_geocode(lat, lng)}
     except Exception as exc:
         _log_event("place_reverse_error", "location", str(exc))
         return {"name": None}
@@ -1264,7 +1237,7 @@ def _handle_mandi_price(farmer, text, intent, lang) -> dict:
 
     state = district = None
     if farmer is not None:
-        state, district = _farmer_admin_area(farmer.location.lat, farmer.location.lng)
+        state, district = geocode.resolve_farmer_district(farmer)
     district = (intent.location or "").strip() or district or (farmer.location.mandal if farmer else None)
 
     try:

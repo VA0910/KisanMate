@@ -137,9 +137,12 @@ Set these in `.env` for local dev, or in the service config when deployed.
 | `ADMIN_USERNAME` | no | `officer` | Officer portal login. |
 | `ADMIN_PASSWORD` | no | `rsk2024` | Officer portal login. |
 | `DATA_GOV_API_KEY` | no | — | data.gov.in key for the assistant's **mandi price** intent (`mandi.py`). Get one free at [data.gov.in](https://data.gov.in) (Sign Up → My Account → API Keys). Without it, mandi_price questions just get a "no rate available" answer — never an error, never a fabricated price. |
+| `MANDI_CRON_SECRET` | no | — | Shared secret guarding `POST /api/admin/mandi/refresh-cache`, the daily mandi-cache pre-warm trigger (`mandi_prewarm.py`) — see below. Unset disables the endpoint (401); the on-demand 24h cache in `mandi.py` still works either way. |
 | `PORT` | no | `8080` | Port to listen on (Cloud Run sets this automatically). |
 
 By default Gemini calls go through **Vertex AI** using `GOOGLE_CLOUD_PROJECT`, so no `GEMINI_API_KEY` is needed and usage is covered by Google Cloud Free Trial credits (the AI Studio Developer API is explicitly excluded from that credit coverage). The runtime identity needs the `roles/aiplatform.user` IAM role, and the project needs `aiplatform.googleapis.com` enabled — see [Deploy to Google Cloud Run](#deploy-to-google-cloud-run) below. Set `GEMINI_USE_VERTEXAI=false` to fall back to the AI Studio Developer API, providing the key **either** directly (`GEMINI_API_KEY`) **or** via Secret Manager (`GEMINI_API_KEY_SECRET`) — the direct env var takes precedence, and a missing/misconfigured secret never crashes startup (the app just uses its deterministic fallbacks). No API key is needed for **weather** (Open-Meteo) or **place search** (OpenStreetMap Nominatim) — both are keyless.
+
+Mandi prices are cached in Firestore for 24h once `GOOGLE_CLOUD_PROJECT` is set (data.gov.in's Agmarknet rows only change once a day, so this is never stale). On top of that, `mandi_prewarm.py` can proactively refresh the cache once a day for the districts real farmers are actually registered in and the crops they actually grow — wire a Cloud Scheduler job to `POST /api/admin/mandi/refresh-cache` with header `X-Cron-Secret: $MANDI_CRON_SECRET` (e.g. `gcloud scheduler jobs create http mandi-prewarm --schedule="0 4 * * *" --uri=https://<your-cloud-run-url>/api/admin/mandi/refresh-cache --http-method=POST --headers=X-Cron-Secret=<your-secret>`). Everything else (a district/commodity no registered farmer is in) is still served fine — just refreshed lazily on next ask instead of proactively.
 
 ### Using Google Secret Manager for the Gemini key
 
@@ -211,6 +214,10 @@ gcloud run deploy kisanmate \
 
 # Optional: add mandi prices to the assistant (append to --set-env-vars above,
 # comma-separated) --  ,DATA_GOV_API_KEY=<your-data-gov-in-api-key>
+
+# Optional: enable the daily mandi-cache pre-warm trigger (append too) --
+#   ,MANDI_CRON_SECRET=<a-long-random-string>
+# then point a Cloud Scheduler job at it (see the mandi price docs above).
 
 # Then seed the Firestore project once (from a machine with ADC to that project):
 python seed.py && python seed_crops.py
