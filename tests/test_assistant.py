@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 
 import assistant as assistant_mod
 import firestore_client
-import geocode
 import main
 import mandi
 import weather as weather_source
@@ -57,7 +56,7 @@ def store(monkeypatch):
     monkeypatch.setattr(firestore_client, "log_telemetry", lambda e: telemetry.append(e) or "t")
     # Reverse-geocoding hits the network by default; keep tests offline unless a
     # test overrides it to exercise the mandi location-resolution path.
-    monkeypatch.setattr(geocode, "farmer_admin_area", lambda lat, lng: (None, None))
+    monkeypatch.setattr(main, "_farmer_admin_area", lambda lat, lng: (None, None))
     return telemetry
 
 

@@ -46,34 +46,6 @@ def test_admin_login_success_and_failure():
     assert bad.status_code == 401
 
 
-# --- mandi cache pre-warm trigger (Cloud Scheduler -> this endpoint) -------------
-
-def test_refresh_mandi_cache_rejects_without_secret(monkeypatch):
-    monkeypatch.setattr(main, "MANDI_CRON_SECRET", "top-secret")
-    resp = client.post("/api/admin/mandi/refresh-cache")
-    assert resp.status_code == 401
-
-
-def test_refresh_mandi_cache_rejects_wrong_secret(monkeypatch):
-    monkeypatch.setattr(main, "MANDI_CRON_SECRET", "top-secret")
-    resp = client.post("/api/admin/mandi/refresh-cache", headers={"x-cron-secret": "wrong"})
-    assert resp.status_code == 401
-
-
-def test_refresh_mandi_cache_disabled_when_secret_unset(monkeypatch):
-    monkeypatch.setattr(main, "MANDI_CRON_SECRET", None)
-    resp = client.post("/api/admin/mandi/refresh-cache", headers={"x-cron-secret": "anything"})
-    assert resp.status_code == 401
-
-
-def test_refresh_mandi_cache_runs_prewarm_with_correct_secret(monkeypatch):
-    monkeypatch.setattr(main, "MANDI_CRON_SECRET", "top-secret")
-    monkeypatch.setattr(main.mandi_prewarm, "run", lambda: {"attempted": 2, "succeeded": 2, "failed": 0})
-    resp = client.post("/api/admin/mandi/refresh-cache", headers={"x-cron-secret": "top-secret"})
-    assert resp.status_code == 200
-    assert resp.json() == {"attempted": 2, "succeeded": 2, "failed": 0}
-
-
 # --- photo storage on diagnose ---------------------------------------------------
 
 def _tomato_farmer():

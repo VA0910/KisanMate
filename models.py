@@ -224,12 +224,6 @@ class Farmer(BaseModel):
     # context, and reminders.
     soil_type: Optional[str] = None
     current_crops: list[CurrentCrop] = Field(default_factory=list)
-    # Resolved once from location (lat/lng) via reverse geocoding and cached here
-    # (see geocode.resolve_farmer_district) -- a farmer's district essentially
-    # never changes, so repeat mandi-price lookups and the daily pre-warm job
-    # shouldn't re-hit Nominatim for it every time.
-    location_state: Optional[str] = None
-    location_district: Optional[str] = None
 
 
 # --- firestore: cases/{id} ---------------------------------------------------

@@ -16,7 +16,6 @@ CROPS_COLLECTION = "crops"
 CASES_COLLECTION = "cases"
 ALERTS_COLLECTION = "alerts"
 TELEMETRY_COLLECTION = "telemetry"
-MANDI_CACHE_COLLECTION = "mandi_cache"
 
 
 @lru_cache(maxsize=None)
@@ -227,20 +226,3 @@ def list_recent_telemetry(limit: int = 50) -> list[Telemetry]:
         .limit(limit)
     )
     return [Telemetry(id=doc.id, **doc.to_dict()) for doc in query.stream()]
-
-
-# --- mandi price cache ---------------------------------------------------------
-# Persists mandi.py's per-(commodity, state, district, market) tier lookups across
-# restarts and instances, so the daily pre-warm job (mandi_prewarm.py) and a
-# farmer's on-demand mandi_price query share one cache entry instead of each
-# process keeping its own short-lived in-memory copy.
-
-def get_mandi_cache(key: str) -> Optional[dict]:
-    doc = get_client().collection(MANDI_CACHE_COLLECTION).document(key).get()
-    return doc.to_dict() if doc.exists else None
-
-
-def set_mandi_cache(key: str, records: list[dict]) -> None:
-    get_client().collection(MANDI_CACHE_COLLECTION).document(key).set(
-        {"records": records, "fetched_at": firestore.SERVER_TIMESTAMP}
-    )

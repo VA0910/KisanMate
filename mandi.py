@@ -12,12 +12,9 @@ module NEVER invents a number.
 import logging
 import os
 import time
-from datetime import datetime, timezone
 from typing import Optional
 
 import requests
-
-import firestore_client
 
 log = logging.getLogger("kisanmate.mandi")
 
@@ -25,53 +22,6 @@ RESOURCE_URL = "https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43
 _TIMEOUT = 4
 _TTL = 2 * 3600  # 1-3h cache per spec
 _CACHE: dict = {}
-
-# Persistent (Firestore-backed) cache for each tier's raw fetch, one layer below
-# _CACHE above. Where _CACHE is a fast, per-process, short-lived cache of the
-# fully-resolved answer, this survives restarts and is shared across instances,
-# and is what the daily pre-warm job (mandi_prewarm.py) populates -- so a
-# farmer's first request of the day can still be served from yesterday's poll
-# instead of waiting on a live data.gov.in call. Gated on GOOGLE_CLOUD_PROJECT
-# (the same signal the rest of the app uses for "Firestore is configured") so
-# tests and local runs without GCP set up just skip straight to a live fetch.
-_PERSISTENT_TTL = 24 * 3600
-
-
-def _persistent_cache_enabled() -> bool:
-    return bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
-
-
-def _persistent_key(commodity: str, state, district, market) -> str:
-    return "|".join(_cache_key(commodity, state, district, market))
-
-
-def _cache_age_seconds(fetched_at: datetime) -> float:
-    return (datetime.now(timezone.utc) - fetched_at).total_seconds()
-
-
-def _persistent_cache_get(key: str) -> Optional[list[dict]]:
-    if not _persistent_cache_enabled():
-        return None
-    try:
-        doc = firestore_client.get_mandi_cache(key)
-    except Exception as exc:
-        log.debug("mandi persistent cache read skipped: %s", exc)
-        return None
-    if not doc:
-        return None
-    fetched_at = doc.get("fetched_at")
-    if fetched_at is None or _cache_age_seconds(fetched_at) > _PERSISTENT_TTL:
-        return None
-    return doc.get("records") or []
-
-
-def _persistent_cache_set(key: str, records: list[dict]) -> None:
-    if not _persistent_cache_enabled():
-        return
-    try:
-        firestore_client.set_mandi_cache(key, records)
-    except Exception as exc:
-        log.debug("mandi persistent cache write skipped: %s", exc)
 
 
 class MandiError(Exception):
@@ -127,33 +77,6 @@ def _fetch(commodity: str, state: Optional[str] = None, district: Optional[str] 
     if isinstance(data, dict) and data.get("error"):
         raise MandiError(f"data.gov.in error: {data['error']}")
     return (data.get("records") or []) if isinstance(data, dict) else []
-
-
-def _fetch_cached(commodity: str, state=None, district=None, market=None,
-                   limit: int = 10, force: bool = False) -> list[dict]:
-    """`_fetch()`, backed by the persistent cache above at this tier's own key.
-    `force=True` (used by the daily pre-warm job) ignores any existing cache
-    entry and always makes a live call, so a farmer's morning query still sees
-    a fresh row rather than yesterday's pre-warmed one going stale unnoticed."""
-    key = _persistent_key(commodity, state, district, market)
-    if not force:
-        cached = _persistent_cache_get(key)
-        if cached is not None:
-            return cached
-
-    records = _fetch(commodity, state=state, district=district, market=market, limit=limit)
-    _persistent_cache_set(key, records)
-    return records
-
-
-def warm(commodity: str, state: Optional[str] = None, district: Optional[str] = None) -> None:
-    """Force-refresh the persistent cache for one (commodity, state, district)
-    tier. Called by the daily pre-warm job (mandi_prewarm.py) for the districts
-    real farmers are in; everything else still goes through the ordinary
-    on-demand path in get_price(). Raises MandiError on a hard failure -- the
-    caller (mandi_prewarm.run()) is expected to catch and log per-pair so one
-    bad row doesn't abort the whole run."""
-    _fetch_cached(commodity, state=state, district=district, force=True)
 
 
 def _best_record(records: list[dict]) -> Optional[dict]:
@@ -225,7 +148,7 @@ def get_price(commodity: str, state: Optional[str] = None, district: Optional[st
 
     result = None
     for tier_kwargs in tiers:
-        records = _fetch_cached(commodity, **tier_kwargs)
+        records = _fetch(commodity, **tier_kwargs)
         result = _best_record(records)
         if result:
             break
