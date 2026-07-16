@@ -12,6 +12,59 @@ from models import CropRecommendation, FusionContext, FusionOutput
 
 LANGUAGE_NAMES = {"en": "English", "hi": "Hindi", "te": "Telugu"}
 
+# Official government scheme portals. Whenever a farmer-facing answer names one
+# of these schemes (in any supported language), the real link is attached as a
+# citation -- so a "recommendation" never leaves the farmer with just a name to
+# remember. Kept separate from Google-Search grounding (assistant.py) since
+# these three are known, stable, official URLs that should never depend on a
+# search call succeeding.
+GOVT_SCHEME_LINKS = [
+    {
+        "title": "PM-KISAN (Kisan Nidhi)",
+        "uri": "https://pmkisan.gov.in/",
+        "keywords": [
+            "pm-kisan", "pm kisan", "kisan nidhi", "kisan samman nidhi",
+            "किसान निधि", "किसान सम्मान निधि", "पीएम-किसान", "पीएम किसान",
+            "కిసాన్ నిధి", "పీఎం-కిసాన్", "పీఎం కిసాన్",
+        ],
+    },
+    {
+        "title": "Crop Insurance (PMFBY / Kisan Beema)",
+        "uri": "https://pmfby.gov.in/",
+        "keywords": [
+            "pmfby", "fasal bima", "crop insurance", "kisan beema", "kisan bima",
+            "फसल बीमा", "किसान बीमा", "पीएमएफबीवाई",
+            "పంట బీమా", "కిసాన్ బీమా", "పీఎంఎఫ్‌బీవై",
+        ],
+    },
+    {
+        "title": "Soil Health Card",
+        "uri": "https://soilhealth.dac.gov.in/",
+        "keywords": [
+            "soil health card", "soil health scheme",
+            "मृदा स्वास्थ्य कार्ड", "मिट्टी स्वास्थ्य कार्ड",
+            "నేల ఆరోగ్య కార్డు", "మట్టి ఆరోగ్య కార్డు",
+        ],
+    },
+]
+
+
+def scheme_citations(*texts: str) -> list:
+    """Scan farmer-facing text for a mention of a known government scheme and
+    return {"title", "uri"} citations for every scheme actually named, so a
+    recommendation that names a scheme always comes with its real link.
+
+    Order-preserving, de-duplicated by uri, never raises (worst case: []).
+    """
+    haystack = " ".join(t for t in texts if t).lower()
+    if not haystack:
+        return []
+    found = []
+    for scheme in GOVT_SCHEME_LINKS:
+        if any(kw.lower() in haystack for kw in scheme["keywords"]):
+            found.append({"title": scheme["title"], "uri": scheme["uri"]})
+    return found
+
 # Localized soil-type labels, so even the deterministic fallbacks (no Gemini)
 # still address the farmer's own soil rather than a generic default.
 SOIL_LABELS = {

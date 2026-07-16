@@ -202,6 +202,18 @@ gcloud projects add-iam-policy-binding <your-gcp-project-id> \
   --role="roles/aiplatform.user"
 ```
 
+The assistant's spoken answers use Google Cloud Text-to-Speech for higher-quality
+Hindi/Telugu/Indian-English voices, with the browser's own Web Speech API as an
+automatic fallback (`POST /tts`, see [`tts.py`](tts.py)) — this is optional; the
+app works fine without it, it just falls back to the browser on every answer.
+Unlike Vertex AI, Cloud TTS has no dedicated fine-grained IAM role — it's gated
+purely on the API being enabled and the caller having standard Cloud Run/ADC
+auth (which the default Compute Engine service account already has). To enable it:
+
+```bash
+gcloud services enable texttospeech.googleapis.com
+```
+
 ```bash
 gcloud run deploy kisanmate \
   --source . \

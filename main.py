@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -44,6 +44,7 @@ from models import (
     Soil,
     Telemetry,
 )
+from tts import TtsError, synthesize_speech
 from vision import VisionError, diagnose_image
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -1296,11 +1297,13 @@ def _handle_fertilizer_advice(farmer, text, intent, lang) -> dict:
     }
     try:
         result = assistant_mod.fertilizer_advice(text, profile, lang)
-        return {"answer_text": result["answer_text"], "data": {"crop": crop}}
+        return {"answer_text": result["answer_text"], "data": {"crop": crop},
+                "citations": result.get("citations") or []}
     except assistant_mod.FertilizerAdviceError as exc:
         _log_fallback("assistant_fertilizer_fallback", str(exc))
         fallback = assistant_mod.fallback_fertilizer_advice(crop, lang)
-        return {"answer_text": fallback["answer_text"], "data": {"crop": crop}}
+        return {"answer_text": fallback["answer_text"], "data": {"crop": crop},
+                "citations": fallback.get("citations") or []}
 
 
 def _handle_general_farming_qa(farmer, text, intent, lang) -> dict:
@@ -1371,6 +1374,36 @@ def assistant(request: AssistantRequest):
         "citations": result.get("citations") or [],
         "lang": lang,
     }
+
+
+# --- text-to-speech: Google Cloud TTS, browser Web Speech API as the fallback --
+
+class TtsRequest(BaseModel):
+    text: str
+    lang: str = "en"
+
+
+@app.post("/tts")
+def tts(request: TtsRequest):
+    """Synthesize `text` to speech with Google Cloud TTS and return raw MP3 audio.
+
+    A nicety on top of the browser's own TTS (speech.js), never load-bearing:
+    any failure here (package/credentials/API not enabled/network) becomes a
+    503, and the frontend falls back to the browser's Web Speech API rather
+    than leaving the farmer without an answer.
+    """
+    text = (request.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    lang = request.lang if request.lang in ("en", "hi", "te") else "en"
+
+    try:
+        audio = synthesize_speech(text, lang)
+    except TtsError as exc:
+        _log_event("tts_fallback", "tts", str(exc), fallback_used=True)
+        raise HTTPException(status_code=503, detail="tts unavailable")
+
+    return Response(content=audio, media_type="audio/mpeg")
 
 
 @app.post("/api/demo/run")

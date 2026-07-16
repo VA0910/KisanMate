@@ -15,7 +15,7 @@ import json
 from google.genai import types
 
 from config import GEMINI_MODEL, get_genai_client
-from explain import LANGUAGE_NAMES
+from explain import LANGUAGE_NAMES, scheme_citations
 from models import AssistantIntent
 
 # --- intent classification ---------------------------------------------------
@@ -162,8 +162,11 @@ class FertilizerAdviceError(Exception):
 def fertilizer_advice(question: str, profile: dict, lang: str) -> dict:
     """Ask Gemini for guardrailed, general fertiliser/pest guidance.
 
-    Returns {"answer_text": str}. Raises FertilizerAdviceError on failure; the
-    caller falls back to fallback_fertilizer_advice() below.
+    Returns {"answer_text": str, "citations": [{"title","uri"}]} -- citations are
+    the real link for any government scheme (e.g. Soil Health Card) the answer
+    names, so the recommendation isn't just a name the farmer has to remember.
+    Raises FertilizerAdviceError on failure; the caller falls back to
+    fallback_fertilizer_advice() below.
     """
     language_name = LANGUAGE_NAMES.get(lang, "English")
     prompt = (
@@ -177,7 +180,7 @@ def fertilizer_advice(question: str, profile: dict, lang: str) -> dict:
         text = (response.text or "").strip()
         if not text:
             raise FertilizerAdviceError("Gemini returned an empty fertiliser answer")
-        return {"answer_text": text}
+        return {"answer_text": text, "citations": scheme_citations(text)}
     except FertilizerAdviceError:
         raise
     except Exception as exc:
@@ -211,7 +214,8 @@ def fallback_fertilizer_advice(crop, lang: str) -> dict:
     """Deterministic fallback (Gemini unavailable) -- still soil-test-first and
     IPM-first, still defers the exact dose. Never calls Gemini."""
     fn = _FERTILIZER_FALLBACK.get(lang, _FERTILIZER_FALLBACK["en"])
-    return {"answer_text": fn(crop)}
+    text = fn(crop)
+    return {"answer_text": text, "citations": scheme_citations(text)}
 
 
 # --- general farming Q&A (Gemini + Google Search grounding) -----------------
@@ -262,6 +266,19 @@ def _extract_citations(response) -> list:
     return citations[:3]
 
 
+def _merge_citations(*groups: list) -> list:
+    """Combine citation lists, de-duplicated by uri, first occurrence wins.
+    Known government scheme links go first so they always survive the cap."""
+    merged = []
+    seen = set()
+    for group in groups:
+        for c in group or []:
+            if c["uri"] not in seen:
+                seen.add(c["uri"])
+                merged.append(c)
+    return merged[:4]
+
+
 def general_farming_qa(question: str, lang: str) -> dict:
     """Ask Gemini, grounded in Google Search, for a general Indian-farming answer.
 
@@ -287,7 +304,8 @@ def general_farming_qa(question: str, lang: str) -> dict:
         text = (response.text or "").strip()
         if not text:
             raise FarmingQAError("Gemini returned an empty grounded answer")
-        return {"answer_text": text, "citations": _extract_citations(response)}
+        citations = _merge_citations(scheme_citations(question, text), _extract_citations(response))
+        return {"answer_text": text, "citations": citations}
     except Exception as grounded_exc:
         pass  # fall through to the ungrounded retry below
 
@@ -298,7 +316,7 @@ def general_farming_qa(question: str, lang: str) -> dict:
         if not text:
             raise FarmingQAError("Gemini returned an empty ungrounded answer")
         text += _HEDGE_SUFFIX.get(lang, _HEDGE_SUFFIX["en"])
-        return {"answer_text": text, "citations": []}
+        return {"answer_text": text, "citations": scheme_citations(question, text)}
     except Exception as ungrounded_exc:
         raise FarmingQAError(
             f"Gemini farming Q&A failed (grounded: {grounded_exc}; ungrounded: {ungrounded_exc})"

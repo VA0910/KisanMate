@@ -4,6 +4,7 @@ python-multipart
 google-genai
 google-cloud-firestore
 google-cloud-secret-manager
+google-cloud-texttospeech
 pydantic
 python-dotenv
 requests

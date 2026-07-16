@@ -159,6 +159,16 @@
     // The account button (which opens the profile page) shows only when signed in.
     var profileBtn = $("open-profile-btn");
     if (profileBtn) profileBtn.hidden = !isSignedIn();
+    updateMuteButton();
+  }
+
+  function updateMuteButton() {
+    var btn = $("mute-tts-btn");
+    if (!btn || !window.KM_SPEECH.ttsAvailable) { if (btn) btn.hidden = true; return; }
+    var muted = window.KM_SPEECH.isMuted();
+    btn.setAttribute("aria-pressed", muted ? "true" : "false");
+    btn.setAttribute("aria-label", muted ? t("unmuteVoice") : t("muteVoice"));
+    setIconUse($("mute-tts-icon"), muted ? "icon-speaker-mute" : "icon-speaker");
   }
 
   function markCurrentLanguageCard() {
@@ -1474,6 +1484,42 @@
 
   function wireHeader() {
     $("change-language-btn").addEventListener("click", function () { showScreen("language"); });
+    $("mute-tts-btn").addEventListener("click", function () {
+      window.KM_SPEECH.setMuted(!window.KM_SPEECH.isMuted());
+      updateMuteButton();
+    });
+    updateMuteButton();
+  }
+
+  // ---- government schemes dropdown (informational links; independent of voice UI) --
+
+  function wireGovtSchemesMenu() {
+    var btn = $("govt-schemes-btn");
+    var menu = $("govt-schemes-menu");
+    if (!btn || !menu) return;
+
+    function closeMenu() {
+      menu.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+    }
+    function openMenu() {
+      menu.hidden = false;
+      btn.setAttribute("aria-expanded", "true");
+    }
+
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (menu.hidden) openMenu(); else closeMenu();
+    });
+    document.addEventListener("click", function (e) {
+      if (!menu.hidden && e.target !== btn && !menu.contains(e.target)) closeMenu();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !menu.hidden) { closeMenu(); btn.focus(); }
+    });
+    menu.querySelectorAll(".govt-scheme-link").forEach(function (link) {
+      link.addEventListener("click", closeMenu);
+    });
   }
 
   function wireBottomNav() {
@@ -1701,6 +1747,7 @@
     wireSetup();
     wireProfilePage();
     wireHeader();
+    wireGovtSchemesMenu();
     wireBottomNav();
     wireHome();
     wireDiagnose();
